@@ -72,7 +72,7 @@ public:
 	bool isValid();
 	// == Recorder
 
-	bool initRecorder(const char* filename);
+	bool initRecorder(std::string filename);
 	bool startRec();
 	bool isRecording();
 	bool stopRec();

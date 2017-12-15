@@ -52,6 +52,8 @@ public:
 
 	int getState();
 	bool unsavedModel();
+	float getFocalX() { return _cam_set.fx; }
+	int getSnapshotRate() { return _rec_set.snapshot_rate; }
 
 public slots:
 
@@ -66,6 +68,9 @@ public slots:
 	void setNumColormapThreads(int);
 	void setIncreaseModel(bool);
 	
+	void setFocalLength(float fx, float fy);
+	void setSnapshotRate(int rate);
+
 	bool switchTab(int index, bool confirmed = false);
 
 	void startReconstruction();

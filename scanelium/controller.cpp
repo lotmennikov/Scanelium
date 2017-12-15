@@ -2,6 +2,7 @@
 #include "modelio.h"
 
 #include <qfileinfo.h>
+#include <qdatetime.h>
 
 Controller::Controller() : QObject(NULL) {
 	_state = NONE;
@@ -51,8 +52,6 @@ Controller::Controller() : QObject(NULL) {
 	connect(_cm, &ColorMapper::finished, this, &Controller::colormapFinished);
 	/*
 	connect(kinfuthread, &KinfuController::kinfuMessage, this, &Scanelium::refreshStatus);
-
-	connect(colorMapper, &ColorMapper::colorFailed, this, &Scanelium::error);
 	*/
 
 }
@@ -147,14 +146,20 @@ void Controller::setState(ProgramState st) {
 				depth_last_index = -1;
 				emit oniStart();
 			}
-			if (!_rc->isRunning()) {
+			if (!_rec_set.recording_only && !_rc->isRunning()) {
 				_rc->init(_rec_set, _cam_set);
+				_oni->setAutoWhiteBalanceAndExposure(false);
 				emit reconstructionStart();
+			} 
+			if (_rec_set.recording && !_oni->isRecording()) {
+				_oni->initRecorder(QDateTime::currentDateTime().toString("yyyy-MM-dd-hh-mm-ss").toStdString() + ".oni");
+				_oni->setAutoWhiteBalanceAndExposure(false);
+				_oni->startRec();
 			}
 			break;
 		case COLOR: // TODO
 			if (_rc->isRunning()) _rc->finish();
-			if (_oni->isValid() && _oni->isRunning()) _oni->stop();
+			if (_oni->isValid() && _oni->isRunning()) _oni->stop(); // this stops recording too
 			break;
 		default:
 			break;
@@ -279,6 +284,20 @@ void Controller::gotDepthMap(std::vector<unsigned short> depth, int width, int h
 		if (_rc->isRunning()) {
 			_rc->newDepth(_depth, index);
 		}
+		else if (_rec_set.recording_only && _rec_set.recording && _oni->isRecording()) {
+			float max_depth = 6000.0f;
+
+			uchar* img_bits = new uchar[3 * width*height];
+			for (int i = 0; i < width*height; ++i) {
+				img_bits[3 * i + 0] = 255 * (1 - depth[i] / max_depth);
+				img_bits[3 * i + 1] = 255 * (1 - depth[i] / max_depth);
+				img_bits[3 * i + 2] = 255 * (1 - depth[i] / max_depth);
+			}
+			QImage rend = QImage(img_bits, width, height, QImage::Format_RGB888).copy();
+			delete[] img_bits;
+
+			gotRendering(rend);
+		}
 		break;
 	default:
 		break;
@@ -348,10 +367,6 @@ void Controller::startReconstruction() {
 		setState(KINFU);
 		break;
 	}
-	/*
-	//	kinfuthread->initKinfu(1.0f, CameraPose::CENTERFACE);
-	ui.scansizeLabel->setText(ui.sizeLabel->text());
-	*/
 }
 
 void Controller::stopReconstruction() {
@@ -359,16 +374,10 @@ void Controller::stopReconstruction() {
 		if (_rc->isRunning()) {
 			emit reconstructionFinish(true);
 		}
+		if (_rec_set.recording && _oni->isRecording()) _oni->stopRec();
 		if (_oni->isRunning()) _oni->stop();
 
-		/*
-		if (!kinfuthread->record_only) {
-			kinfuthread->stopKinfu(true);
-			kinfuthread->stopCapture();
-		}
-		else
-			kinfuthread->stopKinfu(false);
-			*/
+		if (_rec_set.recording_only) setState(INIT);
 	}
 }
 
@@ -571,6 +580,17 @@ void Controller::setIncreaseModel(bool inc) {
 	_col_set.increase_model = inc;
 }
 
+void Controller::setFocalLength(float fx, float fy) {
+	if (this->_state == INIT && fx > 0 && fy > 0) {
+		_cam_set.fx = fx, _cam_set.fy = fy;
+	}
+}
+
+void Controller::setSnapshotRate(int rate) {
+	if (this->_state == INIT && rate >= 0) {
+		_rec_set.snapshot_rate = rate;
+	}
+}
 
 bool Controller::switchTab(int index, bool confirmed) {
 	if (index == _state)
@@ -583,6 +603,7 @@ bool Controller::switchTab(int index, bool confirmed) {
 	case KINFU:
 		if (index == 0) {
 			if (_rc->isRunning()) _rc->finish(false);
+			if (_oni->isRecording()) _oni->stopRec();
 			setState(INIT);
 			return true;
 		}
@@ -704,34 +725,4 @@ void Controller::openFile(QString filename) {
 	if (f_info.suffix().toLower().compare("oni") == 0) {
 		// TODO
 	}
-
-	/*
-	try {
-;
-
-	QString path = QFileInfo(filename).absolutePath();
-	QString scan_name = QFileInfo(filename).baseName();
-
-	kinfuthread->cameras = vector<Camera*>();
-
-	ModelIO::openModel(filename, kinfuthread->camparams, kinfuthread->cameras);
-
-	std::string mesh_name = scan_name.toStdString() + ".ply";
-	printf("\nLoading mesh from file %s...\n", mesh_name.c_str());
-	kinfuthread->mesh = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh());
-	pcl::io::loadPolygonFilePLY((path + "/" + QString::fromStdString(mesh_name)).toStdString(), *kinfuthread->mesh);
-
-	meshReady(true);
-
-	}
-	catch (...) {
-	QMessageBox* error_box = new QMessageBox(QString::fromLocal8Bit("Error"),
-	QString::fromLocal8Bit("Error while opening file"),
-	QMessageBox::Critical,
-	QMessageBox::Ok, 0, 0);
-
-	int n = error_box->exec();
-	delete error_box;
-	}
-	*/
 }

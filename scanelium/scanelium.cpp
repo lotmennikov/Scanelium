@@ -5,7 +5,7 @@
 #include <QtCore/qfile.h>
 #include <QtWidgets/qfiledialog.h>
 
-#include "SettingsDialog.h"
+#include "settingsdialog.h"
 
 using namespace std;
 
@@ -58,6 +58,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.actionStop,  &QAction::triggered, _controller, &Controller::stopReconstruction);
 	connect(ui.finishButton,&QPushButton::clicked, _controller, &Controller::stopReconstruction);
 
+	connect(ui.actionSettings, &QAction::triggered, this, &Scanelium::openSettings);
 	connect(ui.actionOpen, &QAction::triggered, this, &Scanelium::openDialog);
 	connect(ui.actionSave, &QAction::triggered, this, &Scanelium::saveDialog);
 	//connect(ui.actionExit, &QAction::triggered, this, &Scanelium::closeTriggered);
@@ -150,22 +151,25 @@ void Scanelium::confirmDialog(int index, int type) {
 }
 
 void Scanelium::openSettings() {
-	/*
-	SettingsDialog* dialog = new SettingsDialog(this, kinfuthread->camparams.focal_x, kinfuthread->camparams.snapshot_rate);
+	// TODO show error
+	if (_controller->getState() != INIT) return;
+
+	float old_focal = _controller->getFocalX();
+	int old_rate = _controller->getSnapshotRate();
+
+	SettingsDialog* dialog = new SettingsDialog(this, old_focal, old_rate);
+	connect(dialog, &SettingsDialog::focalChanged, _controller, &Controller::setFocalLength);
+	connect(dialog, &SettingsDialog::snapshotChanged, _controller, &Controller::setSnapshotRate);
 
 	if (dialog->exec() == QDialog::Accepted) {
-	kinfuthread->camparams.snapshot_rate = dialog->snapshot_rate;
-	if (dialog->focal != kinfuthread->camparams.focal_x) {
-	if (this->state == KINFU) {
-	kinfuthread->stopKinfu(false);
-	ui.scanTab->setCurrentIndex(0);
-	this->state = ProgramState::INIT;
-	ui.bigViewer->state = INIT;
+		_controller->setFocalLength(dialog->focal, dialog->focal);
+		_controller->setSnapshotRate(dialog->snapshot_rate);
 	}
-	kinfuthread->camparams.focal_x = kinfuthread->camparams.focal_y = dialog->focal;
+	else {
+		_controller->setFocalLength(old_focal, old_focal);
+		_controller->setSnapshotRate(old_rate);
 	}
-	}
-	delete dialog;*/
+	delete	dialog;
 }
 
 void Scanelium::showInfo() {

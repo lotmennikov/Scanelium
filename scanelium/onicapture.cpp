@@ -199,6 +199,7 @@ void ONICapture::start() {
 	
 	setRegistration(true);
 	syncTimestamp(true);
+	setAutoWhiteBalanceAndExposure(true);
 
 	rc = mColorStream.start();
 	if (rc != openni::STATUS_OK)
@@ -317,6 +318,8 @@ void ONICapture::stop() {
 		mColorStream.stop();
 	if (mDepthStream.isValid())
 		mDepthStream.stop();
+	if (recorder != NULL)
+		stopRec();
 }
 
 void ONICapture::destroy() {
@@ -328,6 +331,8 @@ void ONICapture::destroy() {
 		mDepthStream.destroy();
 		mColorStream.destroy();
 		openni::OpenNI::shutdown();
+
+		if (recorder != NULL) stopRec();
 	}
 	_init_type = INIT_NONE;
 }
@@ -458,9 +463,11 @@ int ONICapture::getDepthResolutionY() {
 
 // == RECORDER ==
 
-bool ONICapture::initRecorder(const char* filename) {
+bool ONICapture::initRecorder(string filename) {
+	if (recorder != NULL) stopRec();
+
 	recorder = new Recorder();
-	if (recorder->create(filename) != 0) {
+	if (recorder->create(filename.c_str()) != 0) {
 		printf("Failed to create ONI Recorder\n");
 		return 0;
 	} else 
@@ -489,7 +496,7 @@ bool ONICapture::stopRec() {
 		recorderStarted = false;
 		recorder->destroy();
 		
-		delete recorder;
+		delete recorder; recorder = NULL;
 		return 1;
 	} else 
 		return 0;
