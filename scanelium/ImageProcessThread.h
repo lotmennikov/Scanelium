@@ -4,7 +4,7 @@
 #include <QtCore\qthread.h>
 #include <QtCore\qmutex.h>
 #include <queue>
-#include "camera.h"
+#include "frame.h"
 
 class ImageProcessThread : public QThread {
 
@@ -12,7 +12,7 @@ class ImageProcessThread : public QThread {
 
 	void run() Q_DECL_OVERRIDE;
 
-	Camera* best;
+	Frame* best;
 
 	bool stopped;
 
@@ -21,11 +21,11 @@ class ImageProcessThread : public QThread {
 public:
 	ImageProcessThread(QObject* parent = 0);
 
-	std::queue<Camera*> toProcess;
+	std::queue<Frame*> toProcess;
 
-	void process(Camera* cam);
+	void process(Frame* cam);
 
-	Camera* getBestCam();
+	Frame* getBestCam();
 
 	void stop();
 

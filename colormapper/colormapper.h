@@ -5,61 +5,55 @@
 #include <vector>
 #include <QtCore/qthread.h>
 #include <QtCore/qmutex.h>
-//#include <qimage.h>
-//#include <qcolor.h>
 #include <queue>
 
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
-#include <pcl/conversions.h>
 #include <pcl/common/transforms.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/PolygonMesh.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
 
-#include "camera.h"
+#include "frame.h"
 #include "structs.h"
 #include "camerathread.h"
 #include "filters.h"
+
+#include "model.h"
+#include <thread>
 
 //const double eps = 0.000000001;
 
 #include "colormapper_global.h"
 
-class COLORMAPPER_EXPORT ColorMapper : public QThread
+class COLORMAPPER_EXPORT ColorMapper : public QObject
 {
 	Q_OBJECT
 
-	void run() Q_DECL_OVERRIDE;
-
 private:
-
-	std::vector<Camera*> cameras;
-
-	pcl::PointCloud<pcl::PointXYZ>::Ptr mesh_cloud;
-	pcl::PointCloud<pcl::RGB>::Ptr point_color;
-
-	QMutex camerathread_mutex;
-	int camerathreads_num;
-	std::vector<CameraThread*> camera_threads;
-	std::queue<int> free_threads;
-
-	bool started;
-	bool stop;
+	bool _started;
+	bool _stop;
 	bool end_iterations;
 
-	bool increase_model; // new
+	std::vector<Frame*> _cameras;
+	std::vector<Model::PointXYZ>* mesh_vertices;
+	std::vector<Model::Triangle>* mesh_triangles;
+
+	std::vector<Model::ColorRGB> point_color;
+
+	QMutex camerathread_mutex;
+	std::vector<CameraThread*> camera_threads;
+	std::queue<int> free_threads;
 
 	int camera_count;
 	int processed_count;
 
+	// input
+	Model::Ptr _model;
+	colormap_settings _col_set;
 	int iteration_count;
-
-	void
-	mapColorsZhouKoltun();
+	bool increase_model; // new
+	int camerathreads_num;
 
 	void 
 	increaseVertexCount();
@@ -71,8 +65,14 @@ private:
 	int oldtriangles;
 	int newtriangles;
 
-	std::vector< pcl::Vertices> new_polygons;
+	std::vector<Model::Triangle> new_polygons;
 	std::vector< std::pair<int, int> > edge_points;
+
+	double initialError;
+	double optimizedError;
+
+	void run();
+	void cancelThreads();
 //	void 
 //	processCamera(int currentcam);
 
@@ -80,7 +80,13 @@ private:
 //	postProcessCamera(int currentcam, const Eigen::VectorXd& x);
 
 public:
-	static CameraParams camparams;
+	
+	std::thread* zhk_thread;
+	void
+		mapColorsZhouKoltun();
+
+	
+
 	static AlgoParams algoparams;
 //	static float camwidth;
 //	static float camheight;
@@ -109,14 +115,11 @@ public:
 	std::vector<std::vector<point_bw>*> camera_point_inds;
 
 	static bool
-	getPointUVCoordinates (const pcl::PointXYZ &pt, pcl::PointXY &UV_coordinates, CameraParams cp);
-
-	static bool
 	mapUVtoDepth(const pcl::PointXY &uv, unsigned short* depth_buffer, CameraParams cp);
 
 	// find depth discontinueties on bw depth map
 	void 
-	computeDepthDiscont(unsigned short * dbuffer);
+	computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams);
 
 	static bool
 	checkPointInsideTriangle (const pcl::PointXY &p1, const pcl::PointXY &p2, const pcl::PointXY &p3, const pcl::PointXY &pt);
@@ -148,33 +151,34 @@ public:
 */	
 
 public:
-	double initialError;
-	double optimizedError;
-
-	pcl::PolygonMesh::Ptr mesh;
 
 	ColorMapper(QObject* parent = 0);
 	~ColorMapper(void);
 
-	void init(CameraParams cparam);
-	void setMesh(pcl::PolygonMesh::Ptr mesh);
-	void setCameras(std::vector<Camera*> cameras);
+	void init(Model::Ptr model, colormap_settings set);
+	//void setModel(Model::Ptr model);
+	//void setCameras(std::vector<Frame*> cameras);
 	void setIterations(int iteration_count);
-	void setThreadsNum(int threads);
-	void setDetalisation(bool det);
+	//void setThreadsNum(int threads);
+	//void setDetalisation(bool det);
+
+	void start();
 	void softStop();
-	void hardStop();
+	void hardStop(bool wait = false);
+
+	bool isRunning();
 
 public slots:
 	void cameraTaskFinished(int camera, int thread, bool success);
 	void cameraTaskError(int thread, std::string msg);
+
 signals:
 //	void iterationFinished(int iteration);
 
-	void colorMapperMessage(QString message, int progress);
+	void message(QString message, int progress);
 	void refreshResidualError(double initial, double current);
-	void colorFinished(bool);
-	void colorFailed(std::string message);
+	void finished(bool);
+	void error(QString title, QString message);
 };
 
 

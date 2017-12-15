@@ -1,4 +1,5 @@
 #include "glwidget.h"
+#include "utils.h"
 
 QMutex glWidget::texture_mutex;
 
@@ -16,13 +17,33 @@ glWidget::glWidget(QWidget *parent) :
     angleChanged = false;
 	movebegin = false;
 	initialized = false;
+	draw_color = false;
 	painting = false;
 	col = QColor(50, 0, 160);
 
-	volume_size = 1;
-	doubleY = false;
-	campose = CameraPose::CENTERFACE;
+	_rec_set.volume_size = 1;
+	_rec_set.doubleY = false;
+	_rec_set.camera_pose = CameraPose::CENTERFACE;
+	_rec_set.camera_distance = 0.4f;
 
+// camera points
+	camposes = QVector<QMatrix4x4>();
+	cam_points = QVector<float>();
+	cam_points.reserve(5 * 3);
+
+	float cam_ratio = 640.f / 480.f;//half edge length
+	float cam_size = 0.05f;
+	cam_points << 0 << 0 << 0
+		<< -cam_ratio * cam_size << -cam_size << cam_size*1.5f
+		<< -cam_ratio * cam_size << cam_size << cam_size*1.5f
+		<< cam_ratio * cam_size << -cam_size << cam_size*1.5f
+		<< cam_ratio * cam_size << cam_size << cam_size*1.5f;
+	cam_inds.reserve(8 * 2);
+	cam_inds << 0 << 1 << 0 << 2 << 0 << 3 << 0 << 4
+		<< 1 << 2 << 2 << 4 << 1 << 3 << 3 << 4;
+
+
+// cube points
 	points = QVector<float>();
 	points.reserve(8*3);
 	float cube_size = 0.5f;//half edge length
@@ -53,11 +74,6 @@ glWidget::glWidget(QWidget *parent) :
 
 	state = ProgramState::INIT;
 }
-
-//void glWidget::remakeVolumeCube(int size) {
-//	this->volume_size = size;
-//
-//}
 
 void glWidget::resizeGL(int width, int height) {
     if (height == 0)
@@ -98,7 +114,27 @@ void glWidget::initializeGL() {
 	lineProgram.link();
 
 	lineProgram.bind();
-	
+
+// camera buffers
+	mVaoCam = new QOpenGLVertexArrayObject(this);
+	mVaoCam->create();
+	mVaoCam->bind();
+
+	camBuffer.create();
+	camBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
+	camBuffer.bind();
+	camBuffer.allocate(cam_points.constData(), cam_points.size() * sizeof(float));
+	camBuffer.release();
+
+	camindBuffer = QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
+	camindBuffer.create();
+	camindBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
+	camindBuffer.bind();
+	camindBuffer.allocate(cam_inds.constData(), cam_inds.size() * sizeof(unsigned int));
+	camindBuffer.release();
+	mVaoCam->release();
+
+// grid buffers
 	mVaoGrid = new QOpenGLVertexArrayObject(this);
 	mVaoGrid->create();
 	mVaoGrid->bind();
@@ -121,6 +157,7 @@ void glWidget::initializeGL() {
 	
 	lineProgram.release();
 
+	glPointSize(2.0f);
 }
 /*
 bool glWidget::resetBuffers(QVector<color_vertex> vert, QVector<unsigned int> ind) {
@@ -207,7 +244,7 @@ void glWidget::paintGL() {
 	QVector3D cameraUpDirection = camTransform * QVector3D(0,1,0);
 
 	vMatrix.lookAt(cameraPosition, camLook, cameraUpDirection);	
-	
+
 	switch (state) {
 	case INIT:
 		{
@@ -218,7 +255,7 @@ void glWidget::paintGL() {
 			gridBuffer.bind();
 			indBuffer.bind();
 			mMatrix = QMatrix4x4();
-			mMatrix.scale(volume_size, (doubleY ? volume_size*2 : volume_size), volume_size);
+			mMatrix.scale(_rec_set.volume_size, (_rec_set.doubleY ? _rec_set.volume_size*2 : _rec_set.volume_size), _rec_set.volume_size);
 
 			lineProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
 			lineProgram.setUniformValue("color", QColor(255, 255, 255));
@@ -235,19 +272,26 @@ void glWidget::paintGL() {
 			if (cloud_points.size() > 0) {
 				cloud_mutex.lock();
 				
-				mMatrix = QMatrix4x4();
-				mMatrix(0,0) = -1;
-				mMatrix(1,1) = -1;
-				switch (campose) {
+				QMatrix4x4 mcorrMatrix = QMatrix4x4();
+				mcorrMatrix(0, 0) = -1;
+				mcorrMatrix(1, 1) = -1;
+				QMatrix4x4 mOffsetMatrix = QMatrix4x4();
+				offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
+				mOffsetMatrix.translate(offset);
+
+				QMatrix4x4 mPoseMatrix = QMatrix4x4();
+				switch (_rec_set.camera_pose) {
 				case CENTER:
-					mMatrix.translate(0, 0, 0);
+					mPoseMatrix.translate(_rec_set.volume_size / 2, _rec_set.volume_size / 2, _rec_set.volume_size / 2);
 					break;
 				case CENTERFACE:
-					mMatrix.translate(0, 0, -volume_size / 2 - camera_distance);
+					mPoseMatrix.translate(_rec_set.volume_size / 2, _rec_set.volume_size / 2, - _rec_set.camera_distance);
 					break;
 				default:
 					break;
 				}
+				mMatrix = mcorrMatrix * mOffsetMatrix*mPoseMatrix;
+				drawCamera(mPoseMatrix, QColor(255, 255, 0));
 
 				colorProgram.bind();
 				colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
@@ -286,72 +330,79 @@ void glWidget::paintGL() {
 			textureProgram.release();
 		}
 		break;
-	case COLOR:
+	case COLOR: case FINAL:
 		{
 			if (initialized) {
-				cloud_mutex.lock();
 
-				normalProgram.bind();
+				if (!draw_color) {
+					cloud_mutex.lock();
 
-				mVaoMesh->bind();
-				meshBuffer.bind();
-				meshindBuffer.bind();
+					normalProgram.bind();
 
-				mMatrix = QMatrix4x4();
-				mMatrix(0,0) = -1;
-				mMatrix(1,1) = -1;
-				mMatrix.translate(-volume_size / 2, -volume_size / 2 * (doubleY ? 2 : 1), -volume_size / 2);
+					mVaoMesh->bind();
+					meshBuffer.bind();
+					meshindBuffer.bind();
 
-				normalProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-				normalProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-				normalProgram.enableAttributeArray("vertex");
-				normalProgram.setAttributeBuffer("normal", GL_FLOAT, sizeof(float)*3, 3, sizeof(color_vertex));
-				normalProgram.enableAttributeArray("normal");
-				glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
-				normalProgram.disableAttributeArray("vertex");
-				normalProgram.disableAttributeArray("normal");
-	
-				meshindBuffer.release();
-				meshBuffer.release();
-				mVaoMesh->release();
+					offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
 
-				normalProgram.release();
-			
-				cloud_mutex.unlock();
-			}
-		}
-		break;
-	case FINAL:
-		{
-			if (initialized) {
-				cloud_mutex.lock();
+					QMatrix4x4 mcorrMatrix = QMatrix4x4();
+					mcorrMatrix(0, 0) = -1;
+					mcorrMatrix(1, 1) = -1;
+					QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
+					mMatrix = mcorrMatrix * mOffsetMatrix;
 
-				colorProgram.bind();
+					normalProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+					normalProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
+					normalProgram.enableAttributeArray("vertex");
+					normalProgram.setAttributeBuffer("normal", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
+					normalProgram.enableAttributeArray("normal");
+					glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
+					normalProgram.disableAttributeArray("vertex");
+					normalProgram.disableAttributeArray("normal");
 
-				mVaoMesh->bind();
-				meshBuffer.bind();
-				meshindBuffer.bind();
+					meshindBuffer.release();
+					meshBuffer.release();
+					mVaoMesh->release();
 
-				mMatrix = QMatrix4x4();
-				mMatrix(0,0) = -1;
-				mMatrix(1,1) = -1;
-				mMatrix.translate(-volume_size / 2, -volume_size / 2 * (doubleY ? 2 : 1), -volume_size / 2);
+					normalProgram.release();
 
-				colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-				colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-				colorProgram.enableAttributeArray("vertex");
-				colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float)*3, 3, sizeof(color_vertex));
-				colorProgram.enableAttributeArray("color");
-				glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
-				colorProgram.disableAttributeArray("vertex");
-	
-				meshindBuffer.release();
-				meshBuffer.release();
-				mVaoMesh->release();
+					for (int i = 0; i < camposes.size(); ++i)
+						drawCamera(camposes[i], QColor(255, 255, 255));
 
-				colorProgram.release();
-			
-				cloud_mutex.unlock();
+					cloud_mutex.unlock();
+
+				}
+				else {
+					cloud_mutex.lock();
+
+					colorProgram.bind();
+
+					mVaoMesh->bind();
+					meshBuffer.bind();
+					meshindBuffer.bind();
+
+					QMatrix4x4 mcorrMatrix = QMatrix4x4();
+					mcorrMatrix(0, 0) = -1;
+					mcorrMatrix(1, 1) = -1;
+					QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
+					mMatrix = mcorrMatrix * mOffsetMatrix;
+
+					colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+					colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
+					colorProgram.enableAttributeArray("vertex");
+					colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
+					colorProgram.enableAttributeArray("color");
+					glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
+					colorProgram.disableAttributeArray("vertex");
+
+					meshindBuffer.release();
+					meshBuffer.release();
+					mVaoMesh->release();
+
+					colorProgram.release();
+
+					cloud_mutex.unlock();
+				}
 			}
 		}
 		break;
@@ -364,13 +415,47 @@ void glWidget::paintGL() {
 	painting = false;
 }
 
+void glWidget::drawCamera(QMatrix4x4 pose, QColor color) {
+	lineProgram.bind();
+
+	mVaoCam->bind();
+	camBuffer.bind();
+	camindBuffer.bind();
+
+	QMatrix4x4 mcorrMatrix = QMatrix4x4();
+	mcorrMatrix(0, 0) = -1;
+	mcorrMatrix(1, 1) = -1;
+	QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);	
+	mMatrix = mcorrMatrix * mOffsetMatrix*pose;
+
+	lineProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+	lineProgram.setUniformValue("color", color);
+	lineProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3);
+	lineProgram.enableAttributeArray("vertex");
+	glDrawElements(GL_LINES, cam_inds.size(), GL_UNSIGNED_INT, 0);
+	lineProgram.disableAttributeArray("vertex");
+
+	camindBuffer.release();
+	camBuffer.release();
+	mVaoCam->release();
+	lineProgram.release();
+
+}
+
 glWidget::~glWidget() {
 	if (mVaoGrid != NULL) {
 		mVaoGrid->bind();
 		mVaoGrid->destroy();
 		mVaoGrid->release();
+		delete mVaoGrid;
 	}
-	delete mVaoGrid;
+
+	if (mVaoCam != NULL) {
+		mVaoCam->bind();
+		mVaoCam->destroy();
+		mVaoCam->release();
+		delete mVaoCam;
+	}
 }
 
 void glWidget::mousePressEvent(QMouseEvent * event) {
@@ -414,6 +499,21 @@ void glWidget::wheelEvent(QWheelEvent *event) {
     }
 }
 
+// SLOTS
+
+void glWidget::stateChanged(ProgramState st) {
+	qDebug("glWidget::stateChanged");
+
+	this->state = st;
+	this->updateGL();
+}
+
+void glWidget::refreshRecSettings(rec_settings rc) {
+	this->_rec_set = rc;
+
+	this->updateGL();
+}
+
 void glWidget::refreshTexture(const QImage& img) {
 
 //	int i = 0;
@@ -430,17 +530,30 @@ void glWidget::refreshTexture(const QImage& img) {
 	this->updateGL();
 }
 
-void glWidget::refreshCloud(QVector<QVector3D>* pnts, QVector<QVector3D>* clrs) {
+void glWidget::refreshCloud(QVector<QVector3D> pnts, QVector<QVector3D> clrs) {
 	cloud_mutex.lock();
-	this->cloud_points = (*pnts);
-	this->cloud_colors = (*clrs);
-	delete pnts;
-	delete clrs;
+	this->cloud_points = pnts;
+	this->cloud_colors = clrs;
+
 	cloud_mutex.unlock();
 	this->updateGL();
 }
 
-void glWidget::setPolygonMesh(pcl::PolygonMesh::Ptr mesh, bool color) {
+void cross(cn_vertex v0, cn_vertex v1, cn_vertex v2, float& nx, float& ny, float& nz) {
+	float ax = (v0.vertex[0] - v1.vertex[0]);
+	float bx = (v2.vertex[0] - v1.vertex[0]);
+	float ay = (v0.vertex[1] - v1.vertex[1]);
+	float by = (v2.vertex[1] - v1.vertex[1]);
+	float az = (v0.vertex[2] - v1.vertex[2]);
+	float bz = (v2.vertex[2] - v1.vertex[2]);
+	nx = ay*bz - az*by;
+	ny = az*bx - ax*bz;
+	nz = ax*by - ay*bx;
+}
+
+void glWidget::setPolygonMesh(Model::Ptr model) {
+	qDebug("glWidget::setPolygonMesh");
+
 	cloud_mutex.lock();
 	initialized = false;
 
@@ -450,81 +563,122 @@ void glWidget::setPolygonMesh(pcl::PolygonMesh::Ptr mesh, bool color) {
 
 	std::vector<int> face_per_point;
 
-	if (color) {
-		pcl::PointCloud<pcl::PointXYZRGB> cloud;
-		pcl::fromPCLPointCloud2(mesh->cloud, cloud);
-		mesh_points.reserve(cloud.points.size());
+	bool has_color = model->hasColor();
 
-		for (int i = 0; i < cloud.points.size(); ++i) {
+	if (model->isVBO()) {
+		int points_size;
+		points_size = model->getVertsSize();
+		
+		mesh_points.reserve(points_size);
+
+		color_vertex v0, v1, v2;
+		int i = 0;
+		for (auto it = model->verts_begin(); it != model->verts_end(); ++it, ++i) {
+			Model::PointXYZ p = *it;
+
 			color_vertex vert;
-			vert.vertex[0] = cloud.points[i].x;
-			vert.vertex[1] = cloud.points[i].y;
-			vert.vertex[2] = cloud.points[i].z;
+			vert.vertex[0] = p.x;
+			vert.vertex[1] = p.y;
+			vert.vertex[2] = p.z;
 
-			vert.color[0] = cloud.points[i].r / 255.0f;
-			vert.color[1] = cloud.points[i].g / 255.0f;
-			vert.color[2] = cloud.points[i].b / 255.0f;
+			vert.color[0] = vert.color[1] = vert.color[2] = 0.0f;
+			//vert.normal[0] = vert.normal[1] = vert.normal[2] = 0.0f;
 
 			mesh_points.push_back(vert);
+			mesh_inds.push_back(i);
+
+			if (i % 3 == 0)
+				v0 = vert;
+			if (i % 3 == 1)
+				v1 = vert;
+			if (i % 3 == 2) {
+				v2 = vert;
+				float x, y, z;
+				cross(v0, v1, v2, x, y, z);
+				mesh_points[i].color[0] = x;
+				mesh_points[i].color[1] = y;
+				mesh_points[i].color[2] = z;
+
+				mesh_points[i - 1].color[0] = x;
+				mesh_points[i - 1].color[1] = y;
+				mesh_points[i - 1].color[2] = z;
+
+				mesh_points[i - 2].color[0] = x;
+				mesh_points[i - 2].color[1] = y;
+				mesh_points[i - 2].color[2] = z;
+			}
 		}
-	} else {
-		pcl::PointCloud<pcl::PointXYZ> cloud;
-		pcl::fromPCLPointCloud2(mesh->cloud, cloud);
-		mesh_points.reserve(cloud.points.size());
-		face_per_point.resize(cloud.points.size(), 0);
+	} else if (model->isIBO()) {
+		int points_size;
+		points_size = model->getVertsSize();
+		int indices_size;
+		indices_size = model->getIndsSize();
 
-		for (int i = 0; i < cloud.points.size(); ++i) {
-			color_vertex vert;
-			vert.vertex[0] = cloud.points[i].x;
-			vert.vertex[1] = cloud.points[i].y;
-			vert.vertex[2] = cloud.points[i].z;
+		mesh_points.reserve(points_size);
+		mesh_inds.reserve(indices_size);
 
-			vert.color[0] = 0.0f;
-			vert.color[1] = 0.0f;
-			vert.color[2] = 0.0f;
+		std::vector<int> face_per_point;
+		face_per_point.resize(points_size);
+
+		cn_vertex v0, v1, v2;
+
+		int i = 0;
+		for (auto it = model->verts_begin(); it != model->verts_end(); ++it, ++i) {
+			Model::PointXYZ p = *it;
+
+			cn_vertex vert;
+			vert.vertex[0] = p.x;
+			vert.vertex[1] = p.y;
+			vert.vertex[2] = p.z;
+
+			if (!has_color) {
+				vert.color[0] = 0;
+				vert.color[1] = 0;
+				vert.color[2] = 0;
+			}
+			else {
+				vert.color[0] = it.getColor().r;
+				vert.color[1] = it.getColor().g;
+				vert.color[2] = it.getColor().b;
+			}
+			//vert.normal[0] = vert.normal[1] = vert.normal[2] = 0.0f;
 
 			mesh_points.push_back(vert);
+			face_per_point[i] = 0;
 		}
-	}
-	mesh_inds.reserve(mesh->polygons.size()*3);
-	auto it = mesh->polygons.begin();
-	for (; it != mesh->polygons.end(); ++it) {
-		uint ind0 = (*it).vertices[0];
-		uint ind1 = (*it).vertices[1];
-		uint ind2 = (*it).vertices[2];
+		for (auto it = model->tri_begin(); it!=model->tri_end(); ++it) {
+			Model::Triangle t = *it;
 
-		mesh_inds.push_back(ind0);
-		mesh_inds.push_back(ind1);
-		mesh_inds.push_back(ind2);
+			int i0 = t.p[0], i1 = t.p[1], i2 = t.p[2];
+			mesh_inds.push_back(i0);
+			mesh_inds.push_back(i2);
+			mesh_inds.push_back(i1);
+			if (!has_color) {
+				float nx, ny, nz;
+				cross(mesh_points[i0], mesh_points[i1], mesh_points[i2], nx, ny, nz);
+				mesh_points[i0].color[0] -= nx;
+				mesh_points[i0].color[1] -= ny;
+				mesh_points[i0].color[2] -= nz;
+				face_per_point[i0] += 1;
 
-		if (!color) {
-			float A = mesh_points[ind0].vertex[1] * (mesh_points[ind1].vertex[2] - mesh_points[ind2].vertex[2]) + mesh_points[ind1].vertex[1] * (mesh_points[ind2].vertex[2] - mesh_points[ind0].vertex[2]) + mesh_points[ind2].vertex[1] * (mesh_points[ind0].vertex[2] - mesh_points[ind1].vertex[2]); 
-			float B = mesh_points[ind0].vertex[2] * (mesh_points[ind1].vertex[0] - mesh_points[ind2].vertex[0]) + mesh_points[ind1].vertex[2] * (mesh_points[ind2].vertex[0] - mesh_points[ind0].vertex[0]) + mesh_points[ind2].vertex[2] * (mesh_points[ind0].vertex[0] - mesh_points[ind1].vertex[0]); 
-			float C = mesh_points[ind0].vertex[0] * (mesh_points[ind1].vertex[1] - mesh_points[ind2].vertex[1]) + mesh_points[ind1].vertex[0] * (mesh_points[ind2].vertex[1] - mesh_points[ind0].vertex[1]) + mesh_points[ind2].vertex[0] * (mesh_points[ind0].vertex[1] - mesh_points[ind1].vertex[1]);
+				mesh_points[i1].color[0] -= nx;
+				mesh_points[i1].color[1] -= ny;
+				mesh_points[i1].color[2] -= nz;
+				face_per_point[i1] += 1;
 
-			mesh_points[ind0].color[0] += A;
-			mesh_points[ind0].color[1] += B;
-			mesh_points[ind0].color[2] += C;
-			face_per_point[ind0]++;
-			
-			mesh_points[ind1].color[0] += A;
-			mesh_points[ind1].color[1] += B;
-			mesh_points[ind1].color[2] += C;
-			face_per_point[ind1]++;
-			
-			mesh_points[ind2].color[0] += A;
-			mesh_points[ind2].color[1] += B;
-			mesh_points[ind2].color[2] += C;
-			face_per_point[ind2]++;
+				mesh_points[i2].color[0] -= nx;
+				mesh_points[i2].color[1] -= ny;
+				mesh_points[i2].color[2] -= nz;
+				face_per_point[i2] += 1;
+			}
 		}
-	}
-	if (!color) {
-		for (int i = 0; i < face_per_point.size(); ++i)
-		{
-			if (face_per_point[i] > 0) {
-				mesh_points[i].color[0] /= face_per_point[i];
-				mesh_points[i].color[1] /= face_per_point[i];
-				mesh_points[i].color[2] /= face_per_point[i];
+		if (!has_color) {
+			for (i = 0; i < mesh_points.size(); ++i) {
+				if (face_per_point[i] > 0) {
+					mesh_points[i].color[0] /= face_per_point[i];
+					mesh_points[i].color[1] /= face_per_point[i];
+					mesh_points[i].color[2] /= face_per_point[i];
+				}
 			}
 		}
 	}
@@ -561,11 +715,20 @@ void glWidget::setPolygonMesh(pcl::PolygonMesh::Ptr mesh, bool color) {
 
 //	colorProgram.release();
 	initialized = true;
+	draw_color = has_color;
+	
+	camposes.clear();
 	cloud_mutex.unlock();
-	if (color) {
-		this->state = FINAL;
-	} else {
-		this->state = COLOR;
-	}
+	for (int i = 0; i < model->getFramesSize(); ++i)
+		newCameraPose(toQtPose(model->getFrame(i)->pose.rotation(), model->getFrame(i)->pose.translation()));
+	
 	this->updateGL();
+}
+
+void glWidget::newCameraPose(QMatrix4x4 pose) {
+	cloud_mutex.lock();
+
+	camposes.push_back(pose);
+
+	cloud_mutex.unlock();
 }

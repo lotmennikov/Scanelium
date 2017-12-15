@@ -2,11 +2,6 @@
 #define CAMERATHREAD_H_LOT
 
 #include <QtCore/qthread.h>
-
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/PolygonMesh.h>
-
 #include <QtCore/qmutex.h>
 
 #include <Eigen/Core>
@@ -14,10 +9,11 @@
 #include <Eigen/SparseCholesky>
 
 #include "structs.h"
-#include "camera.h"
+#include "frame.h"
 #include "camparam.h"
 #include "algoparams.h"
 #include "algofuncs.h"
+#include "model.h"
 
 class CameraThread : public QThread
 {
@@ -40,15 +36,17 @@ public:
 	float** scharry;
 	float** bw;
 	Eigen::VectorXd* x;
-	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+	std::vector<Model::PointXYZ>* mesh_vertices;
+	std::vector<Model::Triangle>* mesh_triangles;
+
 	std::vector<point_bw>* camera_point_inds;
 // in postProcess
 	// currentcam;
 	// *TransM
 	// *x
-	// cloud
-	pcl::PolygonMesh::Ptr mesh;
-	Camera * cam;
+	// vertices
+	// triangles
+	Frame * cam;
 	std::vector< std::pair<int, int> >* edge_points;
 	int processing_points_size;
 // in preProcess

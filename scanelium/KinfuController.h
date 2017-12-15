@@ -50,19 +50,8 @@ private:
 	bool pre_kinfu;
 	bool kinfu_on;
 
-// kinfu
-	pcl::gpu::KinfuTracker kinfu_;
-	pcl::gpu::KinfuTracker::DepthMap depth_device_;
-	pcl::gpu::KinfuTracker::View view_device_;
-	std::vector<pcl::gpu::KinfuTracker::PixelRGB> view_host_;
 
-	std::vector<pcl::gpu::KinfuTracker::PixelRGB> source_image_data_;
-	std::vector<unsigned short> source_depth_data_;
-	pcl::gpu::PtrStepSz<const unsigned short> depth_;
-	pcl::gpu::PtrStepSz<const pcl::gpu::KinfuTracker::PixelRGB> rgb24_;
 
-	pcl::gpu::MarchingCubes::Ptr marching_cubes_;
-	pcl::gpu::DeviceArray<pcl::PointXYZ> triangles_buffer_device_;
 
 	float volume_size;
 	bool doubleY;

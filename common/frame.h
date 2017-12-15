@@ -7,22 +7,36 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+struct frame_params {
+	int color_width;
+	int color_height;
+
+	int depth_width;
+	int depth_height;
+
+	float color_fx;
+	float color_fy;
+	
+	float depth_fx;
+	float depth_fy;
+};
+
 /** holds an image (with corresponding depth info) and corresponding camera pose */
-class Camera {
+class Frame {
 
 public:
+	frame_params fparams;
 	QImage img;
-	unsigned short* depth;
-	bool depth_processed;
-
+	std::vector<unsigned short> depth;
 	Eigen::Affine3f pose;
+
+	bool depth_processed;
 	double blureness;
 	 
 	void computeBlureness();
 	
-	~Camera();
+	~Frame();
 
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 #endif

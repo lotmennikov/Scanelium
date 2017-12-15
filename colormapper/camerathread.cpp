@@ -1,6 +1,10 @@
 #include "camerathread.h"
 #include "colormapper.h"
 
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/PolygonMesh.h>
+
 QMutex CameraThread::ident_mutex;
 
 using namespace Eigen;
@@ -52,9 +56,9 @@ void CameraThread::computedx() {
 		vector<point_bw>::iterator it = camera_point_inds->begin();
 		for (int ipoint = 0; it != camera_point_inds->end(); ++ipoint, it++) {
 			Eigen::Vector4d pnt;
-			pnt(0) = cloud->points[(*it).index].x;
-			pnt(1) = cloud->points[(*it).index].y;
-			pnt(2) = cloud->points[(*it).index].z;
+			pnt(0) = mesh_vertices->operator[]((*it).index).x;
+			pnt(1) = mesh_vertices->operator[]((*it).index).y;
+			pnt(2) = mesh_vertices->operator[]((*it).index).z;
 			pnt(3) = 1;
 
 	// * compute r
@@ -145,9 +149,9 @@ void CameraThread::computedx() {
 		it = camera_point_inds->begin();
 		for (;it != camera_point_inds->end(); it++) {
 			Vector4d pnt;
-			pnt(0) = cloud->points[(*it).index].x;
-			pnt(1) = cloud->points[(*it).index].y;
-			pnt(2) = cloud->points[(*it).index].z;
+			pnt(0) = mesh_vertices->operator[]((*it).index).x;
+			pnt(1) = mesh_vertices->operator[]((*it).index).y;
+			pnt(2) = mesh_vertices->operator[]((*it).index).z;
 			pnt(3) = 1;
 
 			Vector4d initG = Gfunc(pnt, transf);
@@ -188,10 +192,10 @@ void CameraThread::computedx() {
 void CameraThread::postProcessCamera() {
 
 // transform mesh into camera's frame
-	vector<float> camera_z(cloud->points.size()); // new size
+	vector<float> camera_z(mesh_vertices->size()); // new size
 	    
 	std::vector<bool> visibility;
-	visibility.resize (mesh->polygons.size ());
+	visibility.resize (mesh_triangles->size ());
 
 	pcl::PointCloud<pcl::PointXY>::Ptr projections (new pcl::PointCloud<pcl::PointXY>);
 	projections->points.resize(processing_points_size); // old size //cloud->points.size()); 
@@ -202,7 +206,7 @@ void CameraThread::postProcessCamera() {
 
 	Matrix4d transf = eTrotation(*x, *TransM);
 
-	auto itp = cloud->points.begin();
+	auto itp = mesh_vertices->begin();
 	auto ip = projections->points.begin();
 	for (int ind = 0; ind < processing_points_size; ++ip, ++itp, ++ind) { // itp != cloud->points.end()
 
@@ -229,12 +233,12 @@ void CameraThread::postProcessCamera() {
 
 // removing completely unseen faces
 	int cpt_invisible=0;
-	auto it = mesh->polygons.begin();
-	for (int idx_face = 0; it != mesh->polygons.end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
+	auto it = mesh_triangles->begin();
+	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
 	{
-		if (projections->points[it->vertices[0]].x >= 0.0 &&
-			projections->points[it->vertices[1]].x >= 0.0 &&
-			projections->points[it->vertices[2]].x >= 0.0)
+		if (projections->points[it->p[0]].x >= 0.0 &&
+			projections->points[it->p[1]].x >= 0.0 &&
+			projections->points[it->p[2]].x >= 0.0)
 		{
 			visibility[idx_face] = true; 
 		} else {
@@ -252,8 +256,8 @@ void CameraThread::postProcessCamera() {
 		std::vector<int> idxNeighbors;
 		std::vector<float> neighborsSquaredDistance;
 			// project all faces
-		it = mesh->polygons.begin();
-		for (int idx_face = 0; it != mesh->polygons.end(); ++it, ++idx_face)
+		it = mesh_triangles->begin();
+		for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
 		{
 
 			if (!visibility[idx_face])
@@ -262,9 +266,9 @@ void CameraThread::postProcessCamera() {
 				continue;
 			}
 
-			pcl::PointXY uv_coord1 = projections->points[it->vertices[0]];
-			pcl::PointXY uv_coord2 = projections->points[it->vertices[1]];
-			pcl::PointXY uv_coord3 = projections->points[it->vertices[2]];
+			pcl::PointXY uv_coord1 = projections->points[it->p[0]];
+			pcl::PointXY uv_coord2 = projections->points[it->p[1]];
+			pcl::PointXY uv_coord3 = projections->points[it->p[2]];
 			
 			if (uv_coord1.x >= 0.0 && uv_coord2.x >= 0.0 && uv_coord3.x >= 0.0)
 			{
@@ -286,9 +290,9 @@ void CameraThread::postProcessCamera() {
 					// for each neighbor
 					for (size_t i = 0; i < idxNeighbors.size (); ++i)
 					{
-						if (std::max (camera_z[it->vertices[0]],
-							std::max (camera_z[it->vertices[1]], 
-									  camera_z[it->vertices[2]]))
+						if (std::max (camera_z[it->p[0]],
+							std::max (camera_z[it->p[1]], 
+									  camera_z[it->p[2]]))
 									< camera_z[idxNeighbors[i]])
 						{
 							// neighbor is farther than all the face's points. Check if it falls into the triangle
@@ -311,13 +315,13 @@ void CameraThread::postProcessCamera() {
 
 
 //increasing vertex count
-	if (cloud->points.size() > processing_points_size) {
-		projections->points.resize(cloud->points.size());
+	if (mesh_vertices->size() > processing_points_size) {
+		projections->points.resize(mesh_vertices->size());
 		
-		itp = cloud->points.begin() + processing_points_size;
+		itp = mesh_vertices->begin() + processing_points_size;
 		ip = projections->points.begin() + processing_points_size;
 		auto ep = edge_points->begin();
-		for (int ind = processing_points_size; itp != cloud->points.end(); ++ip, ++itp, ++ind, ++ep) {
+		for (int ind = processing_points_size; itp != mesh_vertices->end(); ++ip, ++itp, ++ind, ++ep) {
 			if (projections->points[ep->first].x >= 0 && projections->points[ep->second].x >= 0) {
 				Vector4d pnt;
 				pnt(0) = itp->x;
@@ -351,9 +355,9 @@ void CameraThread::postProcessCamera() {
 			uv_coord1.y >= 5.0 && uv_coord1.y <= cp.color_height - 6.0) {
 
 			normal tocam;
-			tocam.x = camera.x-cloud->points[i].x;
-			tocam.y = camera.y-cloud->points[i].y;
-			tocam.z = camera.z-cloud->points[i].z;
+			tocam.x = camera.x- mesh_vertices->operator[](i).x;
+			tocam.y = camera.y- mesh_vertices->operator[](i).y;
+			tocam.z = camera.z- mesh_vertices->operator[](i).z;
 
 			normal pointnormal = ColorMapper::point_normals[i];
 			
@@ -361,7 +365,7 @@ void CameraThread::postProcessCamera() {
 			
 			weight /= tocam.getLen()*tocam.getLen();
 
-			if (!ColorMapper::mapUVtoDepth(uv_coord1, cam->depth, cp))
+			if (!ColorMapper::mapUVtoDepth(uv_coord1, &cam->depth[0], cp))
 				weight *= 0.001;
 
 			if (weight > 0) {
@@ -377,35 +381,44 @@ void CameraThread::postProcessCamera() {
 void CameraThread::preProcessCamera() {
 
 	pcl::PointCloud<pcl::PointXY>::Ptr projections (new pcl::PointCloud<pcl::PointXY>);
-	projections->points.resize(cloud->points.size());
+	projections->points.resize(mesh_vertices->size());
 
 	float width = cp.color_width;
 	float height = cp.color_height;
 	
 	{
 		// transform mesh into camera's frame
-		pcl::PointCloud<PointXYZ>::Ptr camera_cloud (new pcl::PointCloud<PointXYZ>);
-		pcl::transformPointCloud (*cloud, *camera_cloud, cam->pose.inverse ());
+		//pcl::PointCloud<PointXYZ>::Ptr camera_cloud (new pcl::PointCloud<PointXYZ>);
+		//pcl::transformPointCloud (*cloud, *camera_cloud, cam->pose.inverse ());
+		vector<Model::PointXYZ> camera_cloud(mesh_vertices->size());
+		Affine3f cam_pose_inv = cam->pose.inverse();
+		for (auto it_m = mesh_vertices->begin(), it_cc = camera_cloud.begin(); it_m != mesh_vertices->end(); ++it_m, ++it_cc) {
+			Vector3f p(it_m->x, it_m->y, it_m->z);
+			Vector3f p_cam = cam_pose_inv*p;
+			*it_cc = Model::PointXYZ(p_cam.x(), p_cam.y(), p_cam.z(), 1.0f);
+		}
 
 	    
 		std::vector<bool> visibility;
-		visibility.resize (mesh->polygons.size ());
+		visibility.resize (mesh_triangles->size ());
 
 		pcl::PointXY nan_point;
 		nan_point.x = -1.0; 
 		nan_point.y = -1.0; 
 
-		for (int ip = 0; ip < camera_cloud->points.size(); ++ip) {
-			ColorMapper::getPointUVCoordinates(camera_cloud->points[ip], projections->points[ip], cp);
+		Eigen::Vector2d proj;
+		for (int ip = 0; ip < camera_cloud.size(); ++ip) {
+			getPointUVCoordinates(camera_cloud[ip], proj, cp);
+			projections->points[ip].x = proj.x(); projections->points[ip].y = proj.y();
 		}
 		// removing completely unseen faces
 		int cpt_invisible=0;
-		auto it = mesh->polygons.begin();
-		for (int idx_face = 0; it != mesh->polygons.end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
+		auto it = mesh_triangles->begin();
+		for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
 		{
-			if (projections->points[it->vertices[0]].x >= 0.0 &&
-				projections->points[it->vertices[1]].x >= 0.0 &&
-				projections->points[it->vertices[2]].x >= 0.0)
+			if (projections->points[it->p[0]].x >= 0.0 &&
+				projections->points[it->p[1]].x >= 0.0 &&
+				projections->points[it->p[2]].x >= 0.0)
 			{
 				visibility[idx_face] = true; 
 			} else {
@@ -423,8 +436,8 @@ void CameraThread::preProcessCamera() {
 			std::vector<int> idxNeighbors;
 			std::vector<float> neighborsSquaredDistance;
 				// project all faces
-			it = mesh->polygons.begin();
-			for (int idx_face = 0; it != mesh->polygons.end(); ++it, ++idx_face)
+			it = mesh_triangles->begin();
+			for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
 			{
 
 				if (!visibility[idx_face])
@@ -433,9 +446,9 @@ void CameraThread::preProcessCamera() {
 					continue;
 				}
 
-				pcl::PointXY uv_coord1 = projections->points[it->vertices[0]];
-				pcl::PointXY uv_coord2 = projections->points[it->vertices[1]];
-				pcl::PointXY uv_coord3 = projections->points[it->vertices[2]];
+				pcl::PointXY uv_coord1 = projections->points[it->p[0]];
+				pcl::PointXY uv_coord2 = projections->points[it->p[1]];
+				pcl::PointXY uv_coord3 = projections->points[it->p[2]];
 			
 				if (uv_coord1.x >= 0.0 && uv_coord2.x >= 0.0 && uv_coord3.x >= 0.0)
 				{
@@ -457,10 +470,10 @@ void CameraThread::preProcessCamera() {
 						// for each neighbor
 						for (size_t i = 0; i < idxNeighbors.size (); ++i)
 						{
-							if (std::max (camera_cloud->points[it->vertices[0]].z,
-								std::max (camera_cloud->points[it->vertices[1]].z, 
-											camera_cloud->points[it->vertices[2]].z))
-										< camera_cloud->points[idxNeighbors[i]].z)
+							if (std::max (camera_cloud[it->p[0]].z,
+								std::max (camera_cloud[it->p[1]].z, 
+											camera_cloud[it->p[2]].z))
+										< camera_cloud[idxNeighbors[i]].z)
 							{
 								// neighbor is farther than all the face's points. Check if it falls into the triangle
 								if (ColorMapper::checkPointInsideTriangle(uv_coord1, uv_coord2, uv_coord3, projections->points[idxNeighbors[i]]))
@@ -483,7 +496,7 @@ void CameraThread::preProcessCamera() {
 	ident_mutex.lock(); // память экономим и comp_bw аккуратно вычисляем
 	cout << "Thread " << threadId << " preprocess finish - computing camera_point_inds" << endl;
 	vector<point_bw> temp_points;
-	temp_points.reserve(cloud->points.size());
+	temp_points.reserve(mesh_vertices->size());
 
 	for (int i = 0; i < projections->points.size(); ++i) { 
 
@@ -491,12 +504,12 @@ void CameraThread::preProcessCamera() {
 		if (uv_coord1.x >= 8.0 && uv_coord1.x <= width - 9.0 &&
 			uv_coord1.y >= 8.0 && uv_coord1.y <= height - 9.0 &&
 			
-			ColorMapper::mapUVtoDepth(uv_coord1, cam->depth, cp)) {
+			ColorMapper::mapUVtoDepth(uv_coord1, &cam->depth[0], cp)) {
 			
 			normal tocam;
-			tocam.x = camera.x-cloud->points[i].x;
-			tocam.y = camera.y-cloud->points[i].y;
-			tocam.z = camera.z-cloud->points[i].z;
+			tocam.x = camera.x- mesh_vertices->operator[](i).x;
+			tocam.y = camera.y- mesh_vertices->operator[](i).y;
+			tocam.z = camera.z- mesh_vertices->operator[](i).z;
 
 			normal pointnormal = ColorMapper::point_normals[i];
 			

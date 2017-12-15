@@ -5,8 +5,8 @@
 #include <QtCore/qthread.h>
 #include <QtWidgets/qprogressbar.h>
 #include "ui_scanelium.h"
-#include "KinfuController.h"
-#include "colormapper.h"
+
+#include "controller.h"
 
 class Scanelium : public QMainWindow
 {
@@ -15,60 +15,47 @@ class Scanelium : public QMainWindow
 public:
 	Scanelium(QWidget *parent = 0);
 	~Scanelium();
-	public slots:
-	void kinfu_begin();
-	void kinfu_stop();
-	void kinfu_reset();
 
-	bool saveDialog();
-	void save_file();
-	void open_file();
-	void open_settings();
-	void show_info();
-
-	void startColor();
-	void softStopColor();
-	void stopColor();
+	void closeEvent(QCloseEvent*);
 
 public slots:
-	void meshReady(bool);
-	void colorFinished(bool);
+
 	void refreshStatus(QString msg);
 	void refreshStatusProgress(QString msg, int progress);
+	void refreshResidualError(double initial, double current);
+	void showError(QString title, QString message);
 
-	void scanTabIndexChanged(int index);
+	void saveDialog();
+	void openDialog();
+	
+	void confirmDialog(int switchIndex, int type);
+	void openSettings();
+	void showInfo();
 
-	void doubleYchecked(int checked);
-	void recordingChecked(int checked);
-	void recordOnlyChecked(int checked);
+	void recordingBoxChecked(int checked);
+	void tabIndexChanged(int index);	// from ui.scantab
+	void stateChanged(int index);		// from controller
+
 	void colorComboIndexChanged(int index);
 	void depthComboIndexChanged(int index);
-
 	void poseComboIndexChanged(int index);
+	
 	void sizeSliderChanged(int value);
 	void iterationsSliderChanged(int value);
 	void threadsSliderChanged(int value);
-	void refreshResidualError(double initial, double current);
-	void incImagesCount(int count);
-
-	void error(std::string message);
+	void incFramesCount(int count);
+	void showSoftStopButton(bool);
+	void showProgress(bool, int);
 
 private:
 	Ui::ScaneliumClass ui;
-	KinfuController* kinfuthread;
-	ColorMapper* colorMapper;
 	QProgressBar* statusProgress;
 
-	bool unsaved_model;
 
-//	pcl::PolygonMesh::Ptr mesh;
-
-	ProgramState state;
-
+	Controller* _controller;
+	
 signals:
-	void startCapture();
-	void beginKinfu();
-	void stopCapture();
+
 };
 
 #endif // SCANELIUM_H

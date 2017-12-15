@@ -16,7 +16,7 @@ void ImageProcessThread::run() {
 	
 		queueMutex.lock();
 		if (!toProcess.empty()) {
-			Camera * cam = toProcess.front();
+			Frame * cam = toProcess.front();
 			toProcess.pop();
 			queueMutex.unlock();
 
@@ -38,7 +38,7 @@ void ImageProcessThread::run() {
 	clear();
 }
 
-void ImageProcessThread::process(Camera* img) {
+void ImageProcessThread::process(Frame* img) {
 	if (stopped) {
 		delete img;
 		return;
@@ -56,7 +56,7 @@ void ImageProcessThread::stop() {
 	stopped = true;
 }
 
-Camera* ImageProcessThread::getBestCam() {
+Frame* ImageProcessThread::getBestCam() {
 	queueMutex.lock();
 	if (!toProcess.empty()) {
 		while (!toProcess.empty()) {
@@ -67,7 +67,7 @@ Camera* ImageProcessThread::getBestCam() {
 
 	if (best != NULL)
 	{
-		Camera* res = best;
+		Frame* res = best;
 		best = NULL;
 		queueMutex.unlock();
 		return res;

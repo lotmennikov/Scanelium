@@ -1,13 +1,12 @@
 #include "colormapper.h"
 #include <fstream>
 #include <Windows.h>
+#include <thread>
 
 using namespace std;
 using namespace pcl;
 
 //vector<bool> ColorMapper::failCamera;
-
-CameraParams ColorMapper::camparams;			
 AlgoParams ColorMapper::algoparams;
 
 vector<average_grey> ColorMapper::comp_bw;
@@ -15,33 +14,45 @@ vector<average_color> ColorMapper::avgcolors;
 vector<normal> ColorMapper::point_normals;
 Eigen::SparseMatrix<double>* ColorMapper::bigIdentity;
 
-ColorMapper::ColorMapper(QObject* parent) : QThread(parent) 
+
+void callZhk(ColorMapper* cm) {
+	cm->mapColorsZhouKoltun();
+}
+
+ColorMapper::ColorMapper(QObject* parent) : QObject(parent) 
 {
 	iteration_count = 1;
-	started = false;
-	stop = false;
+	_started = false;
+	_stop = false;
 	camerathreads_num = 4;
 
+	zhk_thread = NULL;
+	mesh_vertices = NULL;
+	mesh_triangles = NULL;
 }
 
 ColorMapper::~ColorMapper(void) {
-}
+	qDebug("ColorMapper delete");
 
-void ColorMapper::init(CameraParams cparams) {
-	camparams = cparams;
-	increase_model = false;
-}
+	if (_started) hardStop(true);
 
-void ColorMapper::setMesh(PolygonMesh::Ptr mesh) {
-	if (!started)
-		this->mesh = mesh;
-}
-
-void ColorMapper::setCameras(vector<Camera*> cameras) {
-	if (!started) {
-		this->cameras = cameras;
-		this->camera_count = cameras.size();
+	if (zhk_thread != NULL) {
+		zhk_thread->join();
+		delete zhk_thread;
 	}
+	if (mesh_vertices != NULL) delete mesh_vertices;
+	if (mesh_triangles != NULL) delete mesh_triangles;
+}
+
+void ColorMapper::init(Model::Ptr model, colormap_settings set) {
+	if (_started) return;
+
+	increase_model = false;
+	this->_model = model;
+	this->_col_set = set;
+	this->increase_model = _col_set.increase_model;
+	this->camerathreads_num = _col_set.num_threads;
+	this->iteration_count = _col_set.num_iterations;
 }
 
 // may be changed during execution
@@ -50,25 +61,55 @@ void ColorMapper::setIterations(int it_count) {
 		this->iteration_count = it_count;
 }
 
+//void ColorMapper::setModel(Model::Ptr model) {
+//	if (!_started)
+//		this->_model = model;
+//}
 // could not be changed during execution
-void ColorMapper::setThreadsNum(int threads) {
-	if (!started)
-		this->camerathreads_num = threads;
+//void ColorMapper::setThreadsNum(int threads) {
+//	if (!_started)
+//		this->camerathreads_num = threads;
+//}
+//void ColorMapper::setDetalisation(bool det) {
+//	if (!_started)
+//		increase_model = det;
+//}
+
+void ColorMapper::start() {
+	if (_started) return;
+
+	_stop = false;
+	end_iterations = false;
+	_started = true;
+
+	run();
 }
 
-void ColorMapper::setDetalisation(bool det) {
-	if (!started)
-		increase_model = det;
+bool ColorMapper::isRunning() {
+	return _started;
 }
 
 // make current iteration the last
 void ColorMapper::softStop() {
+	if (!_started) return;
+
 	end_iterations = true;
 }
 
 // terminate execution and all threads
-void ColorMapper::hardStop() {
-	stop = true;
+void ColorMapper::hardStop(bool wait) {
+	if (!_started) return;
+
+	_stop = true;
+
+	if (wait) {
+		while (_started) {
+			Sleep(10);
+		}
+	}
+}
+
+void ColorMapper::cancelThreads() {
 	if (camera_threads.size() > 0) {
 		while (!free_threads.empty())
 			free_threads.pop();
@@ -80,43 +121,32 @@ void ColorMapper::hardStop() {
 			delete camera_threads[i];
 		}
 	}
-	started = false;
 }
 
 void ColorMapper::run() {
-	if (started) return;
-	started = true;
-	stop = false;
-	end_iterations = false;
-//	if (camerathread_mutex)
-	mesh_cloud = pcl::PointCloud<PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::fromPCLPointCloud2(mesh->cloud, *mesh_cloud);
+	if (!_started) return;
+	if (_model->getFramesSize() > 0) {
+		//	if (camerathread_mutex)
 
-	// computing colors
-	point_color =  PointCloud<RGB>::Ptr (new PointCloud<RGB>);
-	point_color->points.resize(mesh_cloud->size());
+		if (mesh_vertices == NULL) mesh_vertices = new vector<Model::PointXYZ>();
+		if (mesh_triangles == NULL) mesh_triangles = new vector<Model::Triangle>();
 
-	// TEST
-//	increase_model = false;
+		_model->copyVertices(*mesh_vertices);
+		_model->copyTriangles(*mesh_triangles);
+		_model->copyFrames(this->_cameras);
+		camera_count = this->_cameras.size();
+		// computing colors
+		point_color = vector<Model::ColorRGB>(mesh_vertices->size());
 
-	mapColorsZhouKoltun();
+		// TEST
+	//	increase_model = false;
 
-	if (increase_model) {
-		mesh->polygons = new_polygons;
+		zhk_thread = new std::thread(callZhk, this);
 	}
-
-	// combining in a new model
-	PointCloud<PointXYZRGB>::Ptr colorcloud(new PointCloud<PointXYZRGB>());
-	pcl::copyPointCloud(*mesh_cloud, *colorcloud);      
-	for (size_t i = 0; i < point_color->size(); ++i)
-		colorcloud->points[i].rgba = point_color->points[i].rgba;
-
-	toPCLPointCloud2(*colorcloud, mesh->cloud);
-	// mesh ready
-	
-	started = false;
-	
-	emit colorFinished(true);
+	else {
+		emit error("Colormapper", "No images");
+		_started = false;
+	}
 }
 
 void 
@@ -125,17 +155,17 @@ ColorMapper::increaseVertexCount() {
  // std::vector< pcl::Vertices> polygons;
 
   new_polygons.clear();
-  new_polygons.reserve(mesh->polygons.size() * 4);
-  new_polygons.resize(mesh->polygons.size ());
+  new_polygons.reserve(mesh_triangles->size() * 4);
+  new_polygons.resize(mesh_triangles->size ());
 
-  copy(mesh->polygons.begin(), mesh->polygons.end(), new_polygons.begin());
+  copy(mesh_triangles->begin(), mesh_triangles->end(), new_polygons.begin());
 
   PCL_INFO ("Increasing vertex number....\n");
   float nx, ny, nz;
 
-  int newp_ind = mesh_cloud->size();
+  int newp_ind = mesh_vertices->size();
   
-  mesh_cloud->points.reserve((mesh_cloud->points.size() * 4) / 3 + 1);
+  mesh_vertices->reserve((mesh_vertices->size() * 4) / 3 + 1);
 //  triangles.polygons.reserve(triangles.polygons.size() * 2);
   vector< vector<pair<int, int> > > npoints(oldpoints);
   edge_points.clear();
@@ -146,10 +176,10 @@ ColorMapper::increaseVertexCount() {
   for (int i = 0; i < tr_count; ++i) {
 	 // сделать 3 точки и 4 тр-ка
 
-	  pcl::Vertices vert = new_polygons[i];
-	  int ind0 = vert.vertices[0];
-	  int ind1 = vert.vertices[1];
-	  int ind2 = vert.vertices[2];
+	  Model::Triangle vert = new_polygons[i];
+	  int ind0 = vert.p[0];
+	  int ind1 = vert.p[1];
+	  int ind2 = vert.p[2];
 
 	  int newpi0, newpi1, newpi2;
 	  int found;
@@ -161,11 +191,12 @@ ColorMapper::increaseVertexCount() {
 		  for (int j = 0; j < npoints[ind1].size(); ++j) if (npoints[ind1][j].first == ind0) { found = npoints[ind1][j].second; break; }
 	  }
 	  if (!found) {
-		  pcl::PointXYZ newp0 = pcl::PointXYZ((mesh_cloud->points[ind0].x + mesh_cloud->points[ind1].x)/2, 
-											  (mesh_cloud->points[ind0].y + mesh_cloud->points[ind1].y)/2,
-											  (mesh_cloud->points[ind0].z + mesh_cloud->points[ind1].z)/2);	     
+		  Model::PointXYZ newp0;
+		  newp0.x = (mesh_vertices->operator[](ind0).x + mesh_vertices->operator[](ind1).x) / 2;
+		  newp0.y = (mesh_vertices->operator[](ind0).y + mesh_vertices->operator[](ind1).y) / 2;
+		  newp0.z = (mesh_vertices->operator[](ind0).z + mesh_vertices->operator[](ind1).z) / 2;
 	  
-		  mesh_cloud->points.push_back(newp0);
+		  mesh_vertices->push_back(newp0);
 		  edge_points.push_back(make_pair(ind0, ind1));
 		  newpi0 = newindex;
 		  ++newindex;
@@ -184,11 +215,12 @@ ColorMapper::increaseVertexCount() {
 		  for (int j = 0; j < npoints[ind2].size(); ++j) if (npoints[ind2][j].first == ind1) { found = npoints[ind2][j].second; break; }
 	  }
 	  if (!found) {
-		  pcl::PointXYZ newp1 = pcl::PointXYZ((mesh_cloud->points[ind1].x + mesh_cloud->points[ind2].x)/2, 
-											  (mesh_cloud->points[ind1].y + mesh_cloud->points[ind2].y)/2,
-											  (mesh_cloud->points[ind1].z + mesh_cloud->points[ind2].z)/2);	     
+		  Model::PointXYZ newp1;
+		  newp1.x = (mesh_vertices->operator[](ind1).x + mesh_vertices->operator[](ind2).x) / 2;
+		  newp1.y = (mesh_vertices->operator[](ind1).y + mesh_vertices->operator[](ind2).y) / 2;
+		  newp1.z = (mesh_vertices->operator[](ind1).z + mesh_vertices->operator[](ind2).z) / 2;
 	  
-		  mesh_cloud->points.push_back(newp1);
+		  mesh_vertices->push_back(newp1);
 		  edge_points.push_back(make_pair(ind1, ind2));
 		  newpi1 = newindex;
 		  ++newindex;
@@ -207,11 +239,12 @@ ColorMapper::increaseVertexCount() {
 		  for (int j = 0; j < npoints[ind0].size(); ++j) if (npoints[ind0][j].first == ind2) { found = npoints[ind0][j].second; break; }
 	  }
 	  if (!found) {
-		  pcl::PointXYZ newp2 = pcl::PointXYZ((mesh_cloud->points[ind2].x + mesh_cloud->points[ind0].x)/2, 
-											  (mesh_cloud->points[ind2].y + mesh_cloud->points[ind0].y)/2,
-											  (mesh_cloud->points[ind2].z + mesh_cloud->points[ind0].z)/2);	     
+		  Model::PointXYZ newp2;
+		  newp2.x = (mesh_vertices->operator[](ind2).x + mesh_vertices->operator[](ind0).x) / 2;
+		  newp2.y = (mesh_vertices->operator[](ind2).y + mesh_vertices->operator[](ind0).y) / 2;
+		  newp2.z = (mesh_vertices->operator[](ind2).z + mesh_vertices->operator[](ind0).z) / 2;
 	  
-		  mesh_cloud->points.push_back(newp2);
+		  mesh_vertices->push_back(newp2);
 		  edge_points.push_back(make_pair(ind2, ind0));
 		  newpi2 = newindex;
 		  ++newindex;
@@ -224,33 +257,29 @@ ColorMapper::increaseVertexCount() {
 	  } else newpi2 = found;
 // --------
 
-	  pcl::Vertices newt;
-	  newt.vertices.push_back(newpi2);
-	  newt.vertices.push_back(ind0);
-	  newt.vertices.push_back(newpi0);
-	  new_polygons[i] = pcl::Vertices(newt);
+	  Model::Triangle newt;
+	  newt.p[0] = newpi2;
+	  newt.p[1] = ind0;
+	  newt.p[2] = newpi0;
+	  new_polygons[i] = newt;
 
-	  newt.vertices.clear();
-	  newt.vertices.push_back(newpi0);
-	  newt.vertices.push_back(ind1);
-	  newt.vertices.push_back(newpi1);
+	  newt.p[0] = newpi0;
+	  newt.p[1] = ind1;
+	  newt.p[2] = newpi1;
 	  new_polygons.push_back(newt);
 
-	  newt.vertices.clear();
-	  newt.vertices.push_back(newpi1);
-	  newt.vertices.push_back(ind2);
-	  newt.vertices.push_back(newpi2);
+	  newt.p[0] = newpi1;
+	  newt.p[1] = ind2;
+	  newt.p[2] = newpi2;
 	  new_polygons.push_back(newt);
 
-	  newt.vertices.clear();
-	  newt.vertices.push_back(newpi0);
-	  newt.vertices.push_back(newpi1);
-	  newt.vertices.push_back(newpi2);
+	  newt.p[0] = newpi0;
+	  newt.p[1] = newpi1;
+	  newt.p[2] = newpi2;
 	  new_polygons.push_back(newt);
   }
-  mesh_cloud->width = mesh_cloud->points.size();
 
-  newpoints = mesh_cloud->points.size();
+  newpoints = mesh_vertices->size();
   newtriangles = new_polygons.size();
 
 //  toPCLPointCloud2(*cloud, triangles.cloud);
@@ -266,6 +295,9 @@ ColorMapper::mapColorsZhouKoltun() {
 //		camera_ratio_diff = true;
 //	else 
 //		camera_ratio_diff = false;
+	frame_params fp = _cameras[0]->fparams;
+	float fx_crat = 640.0f / fp.color_width;
+	CameraParams camparams(fp.color_fx*fx_crat, fp.color_fy*fx_crat, fp.color_width, fp.color_height, fp.depth_width, fp.depth_height);
 
 	double stepx = (camparams.color_width-1) / (double)(algoparams.gridsizex - 1);
 	double stepy = (camparams.color_height-1) / (double)(algoparams.gridsizey - 1);
@@ -278,39 +310,39 @@ ColorMapper::mapColorsZhouKoltun() {
 	scharrx_images.clear();
 	scharry_images.clear();
 
-	comp_bw.resize(mesh_cloud->points.size());
+	comp_bw.resize(mesh_vertices->size());
 	camera_point_inds.resize(camera_count);
 
 	// COMPUTING NORMALS
 	point_normals.clear();
-	point_normals.resize(mesh_cloud->points.size());
-    auto it = mesh->polygons.begin();
-	for (int idx_face = 0; it != mesh->polygons.end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
+	point_normals.resize(mesh_vertices->size());
+    auto it = mesh_triangles->begin();
+	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
 	{
-		float A = mesh_cloud->points[it->vertices[0]].y * (mesh_cloud->points[it->vertices[1]].z - mesh_cloud->points[it->vertices[2]].z) + mesh_cloud->points[it->vertices[1]].y * (mesh_cloud->points[it->vertices[2]].z - mesh_cloud->points[it->vertices[0]].z) + mesh_cloud->points[it->vertices[2]].y * (mesh_cloud->points[it->vertices[0]].z - mesh_cloud->points[it->vertices[1]].z); 
-		float B = mesh_cloud->points[it->vertices[0]].z * (mesh_cloud->points[it->vertices[1]].x - mesh_cloud->points[it->vertices[2]].x) + mesh_cloud->points[it->vertices[1]].z * (mesh_cloud->points[it->vertices[2]].x - mesh_cloud->points[it->vertices[0]].x) + mesh_cloud->points[it->vertices[2]].z * (mesh_cloud->points[it->vertices[0]].x - mesh_cloud->points[it->vertices[1]].x); 
-		float C = mesh_cloud->points[it->vertices[0]].x * (mesh_cloud->points[it->vertices[1]].y - mesh_cloud->points[it->vertices[2]].y) + mesh_cloud->points[it->vertices[1]].x * (mesh_cloud->points[it->vertices[2]].y - mesh_cloud->points[it->vertices[0]].y) + mesh_cloud->points[it->vertices[2]].x * (mesh_cloud->points[it->vertices[0]].y - mesh_cloud->points[it->vertices[1]].y);
+		float A = mesh_vertices->operator[](it->p[0]).y * (mesh_vertices->operator[](it->p[1]).z - mesh_vertices->operator[](it->p[2]).z) + mesh_vertices->operator[](it->p[1]).y * (mesh_vertices->operator[](it->p[2]).z - mesh_vertices->operator[](it->p[0]).z) + mesh_vertices->operator[](it->p[2]).y * (mesh_vertices->operator[](it->p[0]).z - mesh_vertices->operator[](it->p[1]).z);
+		float B = mesh_vertices->operator[](it->p[0]).z * (mesh_vertices->operator[](it->p[1]).x - mesh_vertices->operator[](it->p[2]).x) + mesh_vertices->operator[](it->p[1]).z * (mesh_vertices->operator[](it->p[2]).x - mesh_vertices->operator[](it->p[0]).x) + mesh_vertices->operator[](it->p[2]).z * (mesh_vertices->operator[](it->p[0]).x - mesh_vertices->operator[](it->p[1]).x);
+		float C = mesh_vertices->operator[](it->p[0]).x * (mesh_vertices->operator[](it->p[1]).y - mesh_vertices->operator[](it->p[2]).y) + mesh_vertices->operator[](it->p[1]).x * (mesh_vertices->operator[](it->p[2]).y - mesh_vertices->operator[](it->p[0]).y) + mesh_vertices->operator[](it->p[2]).x * (mesh_vertices->operator[](it->p[0]).y - mesh_vertices->operator[](it->p[1]).y);
 
-		point_normals[it->vertices[0]].x += A;
-		point_normals[it->vertices[0]].y += B;
-		point_normals[it->vertices[0]].z += C;
+		point_normals[it->p[0]].x += A;
+		point_normals[it->p[0]].y += B;
+		point_normals[it->p[0]].z += C;
 
-		point_normals[it->vertices[1]].x += A;
-		point_normals[it->vertices[1]].y += B;
-		point_normals[it->vertices[1]].z += C;
+		point_normals[it->p[1]].x += A;
+		point_normals[it->p[1]].y += B;
+		point_normals[it->p[1]].z += C;
 
-		point_normals[it->vertices[2]].x += A;
-		point_normals[it->vertices[2]].y += B;
-		point_normals[it->vertices[2]].z += C;
+		point_normals[it->p[2]].x += A;
+		point_normals[it->p[2]].y += B;
+		point_normals[it->p[2]].z += C;
 	}
 		
 	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 	{
-		TransM.push_back(new Eigen::Matrix4d(cameras[current_cam]->pose.matrix().cast<double>()));
+		TransM.push_back(new Eigen::Matrix4d(_cameras[current_cam]->pose.matrix().cast<double>()));
 		camera_point_inds[current_cam] = new vector<point_bw>();
-		if (!cameras[current_cam]->depth_processed) {
-			computeDepthDiscont(cameras[current_cam]->depth);
-			cameras[current_cam]->depth_processed = true;
+		if (!_cameras[current_cam]->depth_processed) {
+			computeDepthDiscont(&_cameras[current_cam]->depth[0], camparams);
+			_cameras[current_cam]->depth_processed = true;
 		}
 		//	processCamera(current_cam);	
 	} // 'end for (cameras)
@@ -337,7 +369,7 @@ ColorMapper::mapColorsZhouKoltun() {
 //			TransM.push_back(new Eigen::Matrix4d(cameras[current_cam]->pose.matrix().cast<double>()));
 
 	// filtering
-			QImage img = QImage(cameras[current_cam]->img.scaled(cp.color_width, cp.color_height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+			QImage img = QImage(_cameras[current_cam]->img.scaled(cp.color_width, cp.color_height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 		//	if (current_cam == 0) {
 		//		img.save(QString("scale%1.png").arg(level));
 		//	}
@@ -394,18 +426,18 @@ ColorMapper::mapColorsZhouKoltun() {
 					thread->task = CameraTask::PREPROCESS;
 					thread->cp = camparams_lvl[current_lvl];
 					thread->aparam = algoparams_lvl[current_lvl];
-					thread->cloud = mesh_cloud;
-					thread->mesh = mesh;
+					thread->mesh_triangles = mesh_triangles;
+					thread->mesh_vertices = mesh_vertices;
 					thread->camera_point_inds = camera_point_inds[currentcam];
 					thread->TransM = TransM[currentcam];
 					thread->bw = bw_images[current_lvl][currentcam];
-					thread->cam = cameras[currentcam];
+					thread->cam = _cameras[currentcam];
 
 					thread->currentcam = currentcam;
 
 					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
-					emit colorMapperMessage(QString::fromLocal8Bit("Предобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
+					emit message(QString::fromLocal8Bit("Предобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
 
 					currentcam++;
 				
@@ -414,18 +446,18 @@ ColorMapper::mapColorsZhouKoltun() {
 				camerathread_mutex.unlock();
 
 				Sleep(10);
-				if (stop) return;
+				if (_stop) return;
 		}
 
 		//waiting...
 		while (processed_count < camera_count) {
 			Sleep(10);
-			if (stop) return;
+			if (_stop) return;
 		}
 	} catch (...) {
 		cout << "Exception in ColorMapper" << endl;
 		hardStop();
-		emit colorFailed("Unexpected Error in ColorMapper: PreProcessCamera");
+		emit error("Colormap", "Unexpected Error in ColorMapper: PreProcessCamera");
 		return;
 	}
 
@@ -470,8 +502,8 @@ ColorMapper::mapColorsZhouKoltun() {
 	cout << "iterations count " << iteration_count << endl;
 	for (int iteration = 0; iteration < iteration_count; ++iteration) {
 		printf("**** Iteration #%d ****\n\n", iteration);
-		if (stop) return;
-		emit colorMapperMessage(QString::fromLocal8Bit("Итерация %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
+		if (_stop) return;
+		emit message(QString::fromLocal8Bit("Итерация %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
 
 		// Average C(p)
 		for (int i = 0; i< comp_bw.size(); ++i) 
@@ -651,7 +683,7 @@ ColorMapper::mapColorsZhouKoltun() {
 						thread->task = CameraTask::ALGORITHM;
 						thread->cp = camparams_lvl[current_lvl];
 						thread->aparam = algoparams_lvl[current_lvl];
-						thread->cloud = mesh_cloud;
+						thread->mesh_vertices = mesh_vertices;
 						thread->scharrx = scharrx_images[current_lvl][currentcam];
 						thread->scharry = scharry_images[current_lvl][currentcam];
 						thread->bw = bw_images[current_lvl][currentcam];
@@ -664,7 +696,7 @@ ColorMapper::mapColorsZhouKoltun() {
 						cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
 
-						emit colorMapperMessage(QString::fromLocal8Bit("Итерация %1 - Изображение %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
+						emit message(QString::fromLocal8Bit("Итерация %1 - Изображение %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
 						
 						currentcam++;
 				
@@ -673,18 +705,18 @@ ColorMapper::mapColorsZhouKoltun() {
 					camerathread_mutex.unlock();
 
 					Sleep(10);
-					if (stop) return;
+					if (_stop) return;
 			}
 
 			//waiting...
 			while (processed_count < camera_count) {
 				Sleep(10);
-				if (stop) return;
+				if (_stop) return;
 			}
 		} catch (...) {
 			cout << "Exception in ColorMapper" << endl;
 			hardStop();
-			emit colorFailed("Unexpected Error in ColorMapper");
+			emit error("Colormapper", "Unexpected Error in ColorMapper");
 			return;
 		}
 // * END MULTITHREADING
@@ -737,7 +769,7 @@ ColorMapper::mapColorsZhouKoltun() {
 		}
 
 		if (end_iterations) break;
-		if (stop) return;
+		if (_stop) return;
 	}
 
 // =====================
@@ -796,18 +828,18 @@ ColorMapper::mapColorsZhouKoltun() {
 	} */
 
 // увеличение количества вершин и полигонов
-	oldpoints = mesh_cloud->points.size();
-	oldtriangles = mesh->polygons.size();
+	oldpoints = mesh_vertices->size();
+	oldtriangles = mesh_vertices->size();
 	if (increase_model) {
 			
 		// subdividing triangles
 		increaseVertexCount();
 		cout << "vertex count increased" << endl;
-		point_normals.resize(mesh_cloud->points.size());
-		point_color->points.resize(mesh_cloud->points.size());
+		point_normals.resize(mesh_vertices->size());
+		point_color.resize(mesh_vertices->size());
 
-		auto itnewp = mesh_cloud->points.begin()+oldpoints;
-		for (int i = oldpoints; itnewp != mesh_cloud->points.end(); ++itnewp, ++i) 
+		auto itnewp = mesh_vertices->begin()+oldpoints;
+		for (int i = oldpoints; itnewp != mesh_vertices->end(); ++itnewp, ++i) 
 			point_normals[i] = point_normals[i] + 
 							   point_normals[edge_points[i-oldpoints].first] + 
 							   point_normals[edge_points[i-oldpoints].second];
@@ -815,7 +847,7 @@ ColorMapper::mapColorsZhouKoltun() {
 		cout << "new normals computed" << endl;
 	}
 
-	avgcolors.resize(mesh_cloud->points.size());
+	avgcolors.resize(mesh_vertices->size());
 	
 // * многопоточие:
 // *  MULTITHREADING		
@@ -842,18 +874,18 @@ ColorMapper::mapColorsZhouKoltun() {
 					thread->task = CameraTask::POSTPROCESS;
 					thread->cp = camparams;
 					thread->aparam = algoparams;
-					thread->cloud = mesh_cloud;
-					thread->mesh = mesh;
+					thread->mesh_triangles = mesh_triangles;
+					thread->mesh_vertices = mesh_vertices;
 					thread->x = x[currentcam];
 					thread->TransM = TransM[currentcam];
-					thread->cam = cameras[currentcam];
+					thread->cam = _cameras[currentcam];
 					thread->processing_points_size = oldpoints;
 					thread->edge_points = &edge_points;
 					thread->currentcam = currentcam;
 
 					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
-					emit colorMapperMessage(QString::fromLocal8Bit("Постобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
+					emit message(QString::fromLocal8Bit("Постобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
 
 					currentcam++;
 				
@@ -862,27 +894,28 @@ ColorMapper::mapColorsZhouKoltun() {
 				camerathread_mutex.unlock();
 
 				Sleep(10);
-				if (stop) return;
+				if (_stop) return;
 		}
 
 		//waiting...
 		while (processed_count < camera_count) {
 			Sleep(10);
-			if (stop) return;
+			if (_stop) return;
 		}
 	} catch (...) {
 		cout << "Exception in ColorMapper" << endl;
 		hardStop();
-		emit colorFailed("Unexpected Error in ColorMapper: PostProcessCamera");
+		emit error("Colormapper", "Unexpected Error in ColorMapper: PostProcessCamera");
 		return;
 	}
 // * END MULTITHREADING
+	/*
 	ofstream fout;
 	fout.open("xvec.txt");
 	for (int ab = 0; ab < algoparams.matrixdim; ++ab) {
 		fout << (*x[0])(ab) << ' ';
 	}
-	fout.close();
+	fout.close();*/
 // * конец многопоточия
 	
 //	for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
@@ -890,13 +923,16 @@ ColorMapper::mapColorsZhouKoltun() {
 //		postProcessCamera(currentcam, *x[currentcam]);
 //	}
 
-	for (int i = 0; i < point_color->points.size(); ++i) {
+	for (int i = 0; i < point_color.size(); ++i) {
 		if (avgcolors[i].count == 0) {
 			avgcolors[i].setRGB(0.3,0.3,0.3);
 		} else {
 			avgcolors[i].average();
 		}
-		point_color->points[i].rgb = avgcolors[i].tofloat();//avgcolors[i].tofloat();
+		point_color[i].r = avgcolors[i].r;
+		point_color[i].g = avgcolors[i].g;
+		point_color[i].b = avgcolors[i].b;
+
 	}
 
 // очистка
@@ -926,6 +962,29 @@ ColorMapper::mapColorsZhouKoltun() {
 		delete camera_threads[i];
 	camera_threads.clear();
 	while (!free_threads.empty()) free_threads.pop();
+
+	// add
+
+	if (!_stop) {
+		if (increase_model) {
+			_model->setIBO((float*)&mesh_vertices->operator[](0), mesh_vertices->size(), (int*)&new_polygons[0], newtriangles * 3);
+		}
+		// combining in a new model
+		_model->setColors((float*)&point_color[0], point_color.size());
+
+		delete mesh_vertices; mesh_vertices = NULL;
+		delete mesh_triangles; mesh_triangles = NULL;
+
+		// mesh ready
+		emit finished(true);
+	}
+	else {
+		cancelThreads();
+		emit finished(false);
+	}
+	
+	_started = false;
+
 }// 'end ZhouKoltun
 
 void 
@@ -948,56 +1007,7 @@ ColorMapper::cameraTaskFinished(int camera, int thread, bool success) {
 void 
 ColorMapper::cameraTaskError(int thread, string msg) {
 	hardStop();
-	emit colorFailed(msg);
-}
-
-bool
-ColorMapper::getPointUVCoordinates(const PointXYZ &pt, pcl::PointXY &UV_coordinates, CameraParams cp)
-{
-  if (pt.z > 0)
-  {
-    // compute image center and dimension
-    // focal length is only for this resolution
-	double sizeX = 640;
-    double sizeY = 480;
-
-    double cx, cy;
-
-    cx = sizeX / 2.0-0.5;
-    cy = sizeY / 2.0 - 0.5;
-
-    double focal_x, focal_y; 
-	focal_x = cp.focal_x;
-	focal_y = cp.focal_y;
-
-    // project point on camera's image plane
-	UV_coordinates.x = static_cast<float> ((focal_x * (pt.x / pt.z) + cx) / (sizeX-1) * (cp.color_width-1)); //horizontal
-	UV_coordinates.y = static_cast<float> ((focal_y * (pt.y / pt.z) + cy) / (sizeY) * (sizeY*cp.color_width/sizeX)); //vertical
-
-	if (cp.camera_ratio_diff)
-		UV_coordinates.y = UV_coordinates.y + (cp.color_height - sizeY*(cp.color_width/sizeX))/2.0 - 2.8;
-
-/*
-	UV_coordinates.x = static_cast<float> ((focal_x * (pt.x / pt.z) + cx) / (sizeX-1)); //horizontal
-	UV_coordinates.y = 1.0 - static_cast<float> ((focal_y * (pt.y / pt.z) + cy) / (sizeY)); //vertical
-
-	double ratio = (sizeY * cam.width / sizeX) / cam.height;
-	double addrat = (1.0/ratio - 1.0) / 2.0;
-	UV_coordinates.y = 1.0 - (UV_coordinates.y*ratio + addrat); 
-
-	UV_coordinates.x *= (cam.width-1);
-	UV_coordinates.y *= cam.height;
-*/
-    // point is visible!
-	if (UV_coordinates.x >= 0.0 && UV_coordinates.x <= cp.color_width-1.0 && UV_coordinates.y >= 0.0 && UV_coordinates.y <= cp.color_height-1.0){
-		return (true); // point was visible by the camera
-	}
-  }
-
-  // point is NOT visible by the camera
-  UV_coordinates.x = -1.0f;
-  UV_coordinates.y = -1.0f;
-  return (false); // point was not visible by the camera
+	emit error("Colormapper: cameraTask", QString::fromStdString(msg));
 }
 
 bool
@@ -1021,7 +1031,7 @@ ColorMapper::mapUVtoDepth(const pcl::PointXY &uv, unsigned short* depth_buffer, 
 }
 
 void 
-ColorMapper::computeDepthDiscont(unsigned short * dbuffer) {
+ColorMapper::computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams) {
 	float ** bw = filterBWdepth(dbuffer, camparams.depth_width, camparams.depth_height);
 	float ** conv_depth = filterArrayScharr(bw, camparams.depth_width, camparams.depth_height);
 

@@ -1,4 +1,4 @@
-#include "camera.h"
+#include "frame.h"
 
 using namespace std;
 
@@ -11,7 +11,7 @@ struct blur_estimation_pixel {
 	blur_estimation_pixel() : bw(0), bi(0), bhor(0), bver(0) {}
 };
 
-void Camera::computeBlureness() {
+void Frame::computeBlureness() {
 	int width = img.width()/2;
 	int height = img.height()/2;
 	vector< vector<blur_estimation_pixel> > est(height, vector<blur_estimation_pixel>(width));
@@ -93,7 +93,4 @@ void Camera::computeBlureness() {
 	this->blureness = result;
 }
 
-Camera::~Camera() {
-	if (this->depth != 0)
-		delete [] depth;
-}
+Frame::~Frame() {}

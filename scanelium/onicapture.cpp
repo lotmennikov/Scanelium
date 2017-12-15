@@ -3,19 +3,26 @@
 using namespace openni;
 using namespace std;
 
-ONICapture::ONICapture() {
-//	init();
+ONICapture::ONICapture() : QObject(NULL) {
+	qDebug("Oni create");
+
+	_init_type = INIT_NONE;
+	_started = false;
+	_stop = false;
+
 	recorder = nullptr;
 	recorderStarted = false;
 }
 
-bool ONICapture::init() {
+bool ONICapture::initDevice() {
+	qDebug("Oni::initDevice");
+
 	openni::Status rc = openni::STATUS_OK;
+	rc = openni::OpenNI::initialize();
 
 	mDevice = new Device();
 	const char* deviceURI = openni::ANY_DEVICE;
 
-	rc = openni::OpenNI::initialize();
 
 	printf("After initialization:\n%s\n", openni::OpenNI::getExtendedError());
 
@@ -129,6 +136,42 @@ bool ONICapture::init() {
 	mStreams[0] = &mDepthStream;
 	mStreams[1] = &mColorStream;
 
+	_init_type = INIT_DEVICE;
+	return true;
+}
+
+bool ONICapture::initFile(string file) {
+	qDebug("Oni::initFile");
+
+	openni::Status rc, rc2;
+
+	// initialize and open file
+	openni::OpenNI::initialize();
+	mDevice = new Device();
+	rc = mDevice->open(file.c_str());
+
+	if (rc != openni::STATUS_OK) {
+		printf("ONICapture: Cannot open file %s:\n%s\n", file.c_str(), openni::OpenNI::getExtendedError());
+		openni::OpenNI::shutdown();
+		return false;
+	}
+
+	rc  = mDepthStream.create(*mDevice, openni::SENSOR_DEPTH);
+	rc2 = mColorStream.create(*mDevice, openni::SENSOR_COLOR);
+	
+	if (rc != openni::STATUS_OK || rc2 != openni::STATUS_OK) {
+		printf("ONICapture: Cannot create streams :\n%s\n", openni::OpenNI::getExtendedError());
+		openni::OpenNI::shutdown();
+		return false;
+	}
+
+	mStreams = new VideoStream*[2];
+	mStreams[0] = &mDepthStream;
+	mStreams[1] = &mColorStream;
+	mColorStream.setMirroringEnabled(false);
+	mDepthStream.setMirroringEnabled(false);
+
+	_init_type = INIT_FILE;
 	return true;
 }
 
@@ -148,9 +191,15 @@ void ONICapture::setDepthMode(int index) {
 		mDepthStream.setVideoMode(mDevice->getSensorInfo(openni::SENSOR_DEPTH)->getSupportedVideoModes()[supportedDepth[index]]);
 }
 
-bool ONICapture::start() { 
+void ONICapture::start() { 
+	qDebug("Oni start");
+	if (_started) return;
+
 	openni::Status rc;
 	
+	setRegistration(true);
+	syncTimestamp(true);
+
 	rc = mColorStream.start();
 	if (rc != openni::STATUS_OK)
 	{
@@ -165,24 +214,137 @@ bool ONICapture::start() {
 		mDepthStream.destroy();
 	}
 
-	if (mColorStream.isValid() && mDepthStream.isValid())
-		return true;
-	else 
-		return false;
+	setRegistration(true);
+	syncTimestamp(true);
+
+	if (!mColorStream.isValid() || !mDepthStream.isValid())
+		emit error("Coudn't start stream");
+	else
+		run();
 }
 
-bool ONICapture::stop() {
+void ONICapture::run() {
+	_stop = false;
+	_started = true;
+
+	int depth_counter = 0;
+	int color_counter = 0;
+	int max_depth_frames = 3;
+	int max_color_frames = 1;
+
+	bool check_frame_order = false;
+
+	while (!_stop) {
+		int index;
+		if (!check_frame_order || (depth_counter < max_depth_frames && color_counter < max_color_frames))
+			index = waitFrame();
+		else if (depth_counter >= max_depth_frames)
+			index = waitFrame(1);
+		else if (color_counter >= max_color_frames)
+			index = waitFrame(0);
+
+		switch (index) {
+		case -1:
+			emit error("Stream wait error");
+			_stop = true;
+			break;
+		case 0:
+			// depth
+			{
+				VideoFrameRef frame_dpt = getImage(index);
+				vector<unsigned short> depth;
+				int width = this->getDepthResolutionX();
+				int height = this->getDepthResolutionY();
+				int frame_index = frame_dpt.getFrameIndex();
+//				printf("Depth Frame: %d x %d\n", width, height);
+				depth.resize(width * height);
+//				printf("dpt: ds=%d, bs=%d\n", frame_dpt.getDataSize(), width*height * sizeof(unsigned short));
+				memcpy(&depth[0], frame_dpt.getData(), frame_dpt.getDataSize());
+				emit newDepth(depth, width, height, frame_index);
+		
+				qDebug(QString("Depth frame %1").arg(frame_index).toStdString().c_str());
+				if (check_frame_order) {
+					++depth_counter;
+					color_counter = 0;
+					qDebug(QString("Depth frame %3, counter %1-%2").arg(depth_counter).arg(color_counter).arg(frame_dpt.getFrameIndex()).toStdString().c_str());
+				}
+			}
+			break;
+		case 1:
+			//color	
+			{
+				VideoFrameRef frame_rgb = getImage(index);
+				int width = this->getColorResolutionX();
+				int height = this->getColorResolutionY();
+				int frame_index = frame_rgb.getFrameIndex();
+//				printf("Color Frame: %d x %d\n", width, height);
+
+				uchar* rgb_buffer = new uchar[3 * width*height];
+//				printf("rgb: ds=%d, bs=%d\n", frame_rgb.getDataSize(), 3 * width*height);
+				memcpy(rgb_buffer, frame_rgb.getData(), frame_rgb.getDataSize());
+				QImage img = QImage(rgb_buffer, width, height, QImage::Format_RGB888).copy();
+				delete[] rgb_buffer;
+
+				emit newColor(img, width, height, frame_index);
+
+				qDebug(QString("Color frame %1").arg(frame_index).toStdString().c_str());
+				if (check_frame_order) {
+					++color_counter;
+					depth_counter = 0;
+					qDebug(QString("Color frame %3, counter %1-%2").arg(depth_counter).arg(color_counter).arg(frame_rgb.getFrameIndex()).toStdString().c_str());
+				}
+			}
+			break;
+		default:
+			emit error("Unexpected stream index");
+			_stop = true;
+			break;
+		}
+	}
+	_started = false;
+}
+
+void ONICapture::stop() {
+	qDebug("Oni stop");
+	if (_started) {
+		_stop = true;
+		while (_started) {
+			Sleep(10);
+		}
+	}
+
 	if (mColorStream.isValid())
 		mColorStream.stop();
 	if (mDepthStream.isValid())
 		mDepthStream.stop();
-	return true;
 }
 
 void ONICapture::destroy() {
-	mDepthStream.destroy();
-	mColorStream.destroy();
-	openni::OpenNI::shutdown();
+	qDebug("Oni destroy");
+	if (_started)
+		stop();
+
+	if (_init_type != INIT_NONE) {
+		mDepthStream.destroy();
+		mColorStream.destroy();
+		openni::OpenNI::shutdown();
+	}
+	_init_type = INIT_NONE;
+}
+
+ONICapture::~ONICapture() {
+	qDebug("Oni delete");
+	this->destroy();
+	if (mDevice != NULL)
+		delete mDevice;
+}
+
+bool ONICapture::isRunning() {
+	return _started;
+}
+
+bool ONICapture::isValid() {
+	return _init_type != 0;
 }
 
 void ONICapture::setRegistration(bool reg) {
@@ -193,12 +355,15 @@ void ONICapture::setRegistration(bool reg) {
 	}
 }
 
+void ONICapture::syncTimestamp(bool sync) {
+	mDevice->setDepthColorSyncEnabled(sync);
+}
+
 void ONICapture::setAutoWhiteBalanceAndExposure(bool on_off)
 {
 	mColorStream.getCameraSettings()->setAutoWhiteBalanceEnabled(on_off);
 	mColorStream.getCameraSettings()->setAutoExposureEnabled(on_off);
 }
-
 
 int ONICapture::getAutoWB() {
 	if (mColorStream.isValid()) {

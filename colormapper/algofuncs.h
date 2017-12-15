@@ -5,6 +5,7 @@
 #include "camparam.h"
 #include "algoparams.h"
 #include "structs.h"
+#include "model.h"
 #include <QtGui/qcolor.h>
 #include <QtGui/qimage.h>
 
@@ -32,5 +33,10 @@ Eigen::Matrix2d getJFu(const Eigen::Vector2d& u, const Eigen::VectorXd& xvec, Al
 average_color computeColor(QImage* img,float pix_x,float pix_y);
 
 float compute_value(float** img, float x, float y, CameraParams cp);
+
+
+// FROM COLORMAPPER
+bool
+getPointUVCoordinates(const Model::PointXYZ &pt, Eigen::Vector2d &UV_coordinates, CameraParams cp);
 
 #endif

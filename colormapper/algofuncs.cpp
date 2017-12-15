@@ -1,6 +1,5 @@
 #include "algofuncs.h"
 
-
 Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt, CameraParams camparams) {
 	Eigen::Vector2d u;
 	if (pt(2) > 0)
@@ -220,3 +219,42 @@ float compute_value(float** img, float x, float y, CameraParams camparams) {
 	}
 }
 
+// FROM COLORMAPPER
+
+bool
+getPointUVCoordinates(const Model::PointXYZ &pt, Eigen::Vector2d &UV_coordinates, CameraParams cp)
+{
+	if (pt.z > 0)
+	{
+		// compute image center and dimension
+		// focal length is only for this resolution
+		double sizeX = 640;
+		double sizeY = 480;
+
+		double cx, cy;
+
+		cx = sizeX / 2.0 - 0.5;
+		cy = sizeY / 2.0 - 0.5;
+
+		double focal_x, focal_y;
+		focal_x = cp.focal_x;
+		focal_y = cp.focal_y;
+
+		// project point on camera's image plane
+		UV_coordinates(0) = static_cast<float> ((focal_x * (pt.x / pt.z) + cx) / (sizeX - 1) * (cp.color_width - 1)); //horizontal
+		UV_coordinates(1) = static_cast<float> ((focal_y * (pt.y / pt.z) + cy) / (sizeY) * (sizeY*cp.color_width / sizeX)); //vertical
+
+		if (cp.camera_ratio_diff)
+			UV_coordinates(1) = UV_coordinates(1) + (cp.color_height - sizeY*(cp.color_width / sizeX)) / 2.0 - 2.8;
+
+		// point is visible!
+		if (UV_coordinates(0) >= 0.0 && UV_coordinates(0) <= cp.color_width - 1.0 && UV_coordinates(1) >= 0.0 && UV_coordinates(1) <= cp.color_height - 1.0) {
+			return (true); // point was visible by the camera
+		}
+	}
+
+	// point is NOT visible by the camera
+	UV_coordinates(0) = -1.0f;
+	UV_coordinates(1) = -1.0f;
+	return (false); // point was not visible by the camera
+}

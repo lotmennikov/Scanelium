@@ -8,27 +8,37 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "camera.h"
-#include "camparam.h"
+#include "frame.h"
+#include "model.h"
 
 #include "common_global.h"
 
 class ModelIO {
 
 public:
-	static bool saveModel(QString path, QString scan_name, CameraParams camparams, std::vector<Camera*> cameras);
-	
-	static bool openModel(QString filename, CameraParams& camparams, std::vector<Camera*>& cameras);
+	// save mesh (ply)
+	static bool saveMesh(QString filename, Model::Ptr model);
+
+	// save scl scan (SCL)
+	static bool saveSCL(QString filename, Model::Ptr model);
+
+	// open scl scan (SCL)
+	static bool openSCL(QString filename, Model::Ptr& model);
+
+	// error
+	static QString last_error;
 
 private:
-//	static bool saveModelSCL1();
-	static bool saveModelSCL2(QString path, QString scan_name, CameraParams camparams, std::vector<Camera*> cameras);
-	static bool saveModelSCL3(QString path, QString scan_name, CameraParams camparams, std::vector<Camera*> cameras);
+	// open mesh (ply)
+	static bool openMesh(QString filename, Model::Ptr model);
 
-	static bool openModelSCL1(QString filename, CameraParams& camparams, std::vector<Camera*>& cameras);
-	static bool openModelSCL2(QString filename, CameraParams& camparams, std::vector<Camera*>& cameras);
-	static bool openModelSCL3(QString filename, CameraParams& camparams, std::vector<Camera*>& cameras);
+	static bool writeDPT2(std::string file, std::vector<unsigned short> depth, int width, int height);
+	static bool loadDPT2(std::string file, std::vector<unsigned short>& depth, int& width, int& height);
 
+	static bool openSCL2(QString filename, Model::Ptr& model);
+	static bool openSCL3(QString filename, Model::Ptr& model);
+
+	static bool saveSCL3(QString filename, Model::Ptr model);
 };
 
 

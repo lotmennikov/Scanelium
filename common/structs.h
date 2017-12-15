@@ -2,7 +2,6 @@
 #define STRUCTS_LOT
 
 #include "enums.h"
-#include "math.h"
 #include <stdint.h>
 
 struct normal {
@@ -17,9 +16,7 @@ struct normal {
 		return normal(x + n2.x, y + n2.y, z + n2.z);
 	}
 
-	float getLen() {
-		return sqrt(x*x + y*y + z*z);
-	}
+	float getLen();
 
 };
 
@@ -124,5 +121,35 @@ struct average_color
 		return *(float*)&colpix;
 	}
 };
+
+/** Camera settings
+*/
+struct cam_settings {
+	int color_res;
+	int depth_res;
+	float fx;
+	float fy;
+};
+
+struct rec_settings {
+	float volume_size;
+	bool doubleY;
+	int camera_pose;
+	float camera_distance;
+	bool recording;
+	bool recording_only;
+	int snapshot_rate;
+};
+
+struct colormap_settings {
+	int num_iterations;
+	int num_threads;
+	bool increase_model;
+};
+
+extern const int cam_res_depth_x[2];
+extern const int cam_res_depth_y[2];
+extern const int cam_res_color_x[3];
+extern const int cam_res_color_y[3];
 
 #endif

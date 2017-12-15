@@ -2,6 +2,7 @@
 #define CAMPARAM_H_LOT
 
 #include "enums.h"
+#include <cmath>
 
 class CameraParams {
 
@@ -20,10 +21,10 @@ public:
 									depth_width(cp.depth_width), depth_height(cp.depth_height), 
 									snapshot_rate(cp.snapshot_rate), camera_ratio_diff(cp.camera_ratio_diff) {}
 
-	CameraParams(float fx, float fy, float cwidth, float cheight, float dwidth, float dheight, float snapshotrate) :
+	CameraParams(float fx, float fy, float cwidth, float cheight, float dwidth, float dheight, float snapshotrate = 0) :
 		focal_x(fx), focal_y(fy), color_width(cwidth), color_height(cheight), depth_width(dwidth), depth_height(cheight), snapshot_rate(snapshotrate) {
 
-		if (640.0 / 480.0 != color_width / color_height)
+		if (abs((640.0f / 480.0f) - (color_width / color_height)) > 0.000001f)
 			camera_ratio_diff = true;
 		else 
 			camera_ratio_diff = false;

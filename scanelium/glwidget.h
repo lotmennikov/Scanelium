@@ -14,18 +14,18 @@
 #include <qvector3d.h>
 #include <qmatrix4x4.h>
 #include <QtOpenGL/QGLShaderProgram>
-#include <pcl/PolygonMesh.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/conversions.h>
 
-#include "enums.h"
+#include <memory>
+
+#include "structs.h"
+#include "model.h"
 
 typedef struct {
 	float vertex[3];
 	float color[3];
 } color_vertex;
 
+typedef color_vertex cn_vertex;
 /*
 typedef struct {
 	float vertex[3];
@@ -56,6 +56,7 @@ private:
 
 	bool initialized;
 	bool painting;
+	bool draw_color;
 
     float angle1, angle2;
     float distance;
@@ -89,16 +90,23 @@ private:
 //	QVector<unsigned int> indices_;
 
 //	QPlainTextEdit* log;
+	QVector3D offset;
+	QVector<QMatrix4x4> camposes;
+	QVector<float> cam_points;
+	QVector<unsigned int> cam_inds;
+	QOpenGLVertexArrayObject* mVaoCam;
+	QOpenGLBuffer camBuffer;
+	QOpenGLBuffer camindBuffer;
+	void drawCamera(QMatrix4x4 pose, QColor color);
 
 public:
     explicit glWidget(QWidget *parent = 0);
 
 	static QMutex texture_mutex;
 	QMutex cloud_mutex;
+
 	ProgramState state;
-	float volume_size;
-	CameraPose campose;
-	bool doubleY;
+	rec_settings _rec_set;
 
 	~glWidget();
     
@@ -118,11 +126,14 @@ public:
 
 signals:
 
-public slots:
+public slots :
+	void stateChanged(ProgramState);
+	void refreshRecSettings(rec_settings);
 	void refreshTexture(const QImage& img);
-	void refreshCloud(QVector<QVector3D>*, QVector<QVector3D>*);
-	void setPolygonMesh(pcl::PolygonMesh::Ptr mesh, bool color);
+	void refreshCloud(QVector<QVector3D>, QVector<QVector3D>);
+	void setPolygonMesh(Model::Ptr);
 
+	void newCameraPose(QMatrix4x4);
 };
 
 #endif // GLWIDGET_H_LOT
