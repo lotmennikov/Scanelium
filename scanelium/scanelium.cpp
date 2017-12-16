@@ -29,7 +29,8 @@ Scanelium::Scanelium(QWidget *parent)
 
 	connect(_controller, &Controller::statusUpdate, this, &Scanelium::refreshStatus);
 	connect(_controller, &Controller::stateChanged, this, &Scanelium::stateChanged);
-	connect(_controller, &Controller::framesUpdate, this, &Scanelium::incFramesCount);
+	connect(_controller, &Controller::framesUpdate, this, &Scanelium::refreshFramesNumber);
+	connect(_controller, &Controller::poseDiffUpdate, this, &Scanelium::refreshPoseDiff);
 	connect(_controller, &Controller::colormapErrorUpdate, this, &Scanelium::refreshResidualError);
 	connect(_controller, &Controller::errorBox, this, &Scanelium::showError);
 	connect(_controller, &Controller::askConfirmation, this, &Scanelium::confirmDialog);
@@ -57,11 +58,12 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.resetButton, &QPushButton::clicked, _controller, &Controller::resetReconstruction);
 	connect(ui.actionStop,  &QAction::triggered, _controller, &Controller::stopReconstruction);
 	connect(ui.finishButton,&QPushButton::clicked, _controller, &Controller::stopReconstruction);
+	connect(ui.saveButton, &QPushButton::clicked, this, &Scanelium::saveDialog);
 
 	connect(ui.actionSettings, &QAction::triggered, this, &Scanelium::openSettings);
 	connect(ui.actionOpen, &QAction::triggered, this, &Scanelium::openDialog);
 	connect(ui.actionSave, &QAction::triggered, this, &Scanelium::saveDialog);
-	//connect(ui.actionExit, &QAction::triggered, this, &Scanelium::closeTriggered);
+	connect(ui.actionInfo, &QAction::triggered, this, &Scanelium::showInfo);
 
 	connect(ui.colorButton, &QPushButton::released, _controller, &Controller::startColormap);
 	connect(ui.finishButton, &QPushButton::released, _controller, &Controller::stopColormap);
@@ -110,18 +112,22 @@ void Scanelium::openDialog() {
 
 void Scanelium::closeEvent(QCloseEvent* e) {
 	if (_controller->unsavedModel()) {
-		confirmDialog(-1, 0);
+		if (!confirmDialog(-1, 0))
+		{
+			e->ignore();
+			return;
+		}
 	}
 	e->accept();
 }
 
-void Scanelium::confirmDialog(int index, int type) {
+bool Scanelium::confirmDialog(int index, int type) {
 	switch (type) {
 	case 0: // save unsaved model dialog
 	{
 		QMessageBox* d_box =
-			new QMessageBox(QString::fromLocal8Bit("Сохранить?"),
-				QString::fromLocal8Bit("Сохранить модель: "),
+			new QMessageBox(QString::fromLocal8Bit("Save?"),
+				QString::fromLocal8Bit("Save model: "),
 				QMessageBox::Information,
 				QMessageBox::Yes,
 				QMessageBox::No,
@@ -132,22 +138,23 @@ void Scanelium::confirmDialog(int index, int type) {
 			if (index != -1)
 				_controller->switchTab(index, true);
 			else
-				return;
+				return true;
 		}
 		else if (res == QMessageBox::No) {
 			if (index != -1)
 				_controller->switchTab(index, true);
 			else
-				return;
+				return true;
 		}
 		else {
-			return;
+			return false;
 		}
 	}
 		break;
 	case 1:
 		break;
 	}
+	return true;
 }
 
 void Scanelium::openSettings() {
@@ -174,8 +181,8 @@ void Scanelium::openSettings() {
 
 void Scanelium::showInfo() {
 	QMessageBox* msgbox =
-		new QMessageBox(QString::fromLocal8Bit("Информация"),
-			QString::fromLocal8Bit("Scanelium \n\nВерсия 1.100 (160901) "),
+		new QMessageBox(QString::fromLocal8Bit("Info"),
+			QString::fromLocal8Bit("Scanelium \n\nver 1.200 (160901/171216) "),
 			QMessageBox::Information,
 			QMessageBox::Ok, 0, 0);
 	int res = msgbox->exec();
@@ -191,8 +198,9 @@ void Scanelium::showProgress(bool show, int val) {
 		statusProgress->setValue(val);
 }
 
-void Scanelium::incFramesCount(int count) {
+void Scanelium::refreshFramesNumber(int count) {
 	ui.scanimagesLabel->setText(QString::fromLocal8Bit("Number of frames: %1").arg(count));
+	ui.imagesLabel->setText(QString::fromLocal8Bit("Number of frames: %1").arg(count));
 }
 
 void Scanelium::recordingBoxChecked(int checked) {
@@ -219,27 +227,24 @@ void Scanelium::refreshStatusProgress(QString msg, int progress) {
 }
 
 void Scanelium::refreshResidualError(double initial, double current) {
-	ui.residualLabel->setText(QString::fromLocal8Bit("Среднее отклонение: %1").arg(current));
-	ui.initialResidualLabel->setText(QString::fromLocal8Bit("Исходное отклонение: %1").arg(initial));
+	ui.residualLabel->setText(QString::fromLocal8Bit("Current std: %1").arg(current));
+	ui.initialResidualLabel->setText(QString::fromLocal8Bit("Initial std: %1").arg(initial));
+}
+
+void Scanelium::refreshPoseDiff(float angle_diff, float dist_diff) {
+	ui.angleLabel->setText(QString::fromLocal8Bit("Angle diff: %1").arg(angle_diff));
+	ui.distLabel->setText(QString::fromLocal8Bit("Distance diff: %1").arg(dist_diff));
 }
 
 void Scanelium::showError(QString title, QString message) {
 	
-	//refreshStatus(QString("Color mapping failed: ") + QString::fromStdString(message));
-
 	QMessageBox* error_box =
-		new QMessageBox(title, //QString::fromLocal8Bit("Ошибка"),
-					message,
-					//QString::fromLocal8Bit("Ошибка при вычислении цвета: ") + QString::fromStdString(message),
+		new QMessageBox(title, message,
 					QMessageBox::Critical,
 					QMessageBox::Ok, 0, 0);
-            //        QMessageBox::No,
-            //        QMessageBox::Cancel | QMessageBox::Escape);
 	int n = error_box->exec(); 
 	delete error_box; 
-	if (n == QMessageBox::Ok)
-	{}
-	//*/
+	if (n == QMessageBox::Ok) {}
 }
 
 void Scanelium::tabIndexChanged(int index) {
@@ -296,17 +301,17 @@ void Scanelium::poseComboIndexChanged(int index) {
 void Scanelium::sizeSliderChanged(int value) {
 	float new_size = value / 10.0f;
 	_controller->setVolumeSize(new_size);
-	ui.sizeLabel->setText(QString::fromLocal8Bit("Размер: куб %1 м").arg(new_size));
+	ui.sizeLabel->setText(QString::fromLocal8Bit("Size: %1m cube").arg(new_size));
 }
 
 void Scanelium::iterationsSliderChanged(int value) {
 	int iterations = value;
 	_controller->setNumColormapIterations(iterations);
-	ui.iterationslabel->setText(QString::fromLocal8Bit("Количество итераций: %1").arg(value));
+	ui.iterationslabel->setText(QString::fromLocal8Bit("Iterations: %1").arg(value));
 }
 
 void Scanelium::threadsSliderChanged(int value) {
 	int threads = value;
 	_controller->setNumColormapThreads(threads);
-	ui.threadsLabel->setText(QString::fromLocal8Bit("Количество потоков: %1").arg(value));
+	ui.threadsLabel->setText(QString::fromLocal8Bit("Threads: %1").arg(value));
 }

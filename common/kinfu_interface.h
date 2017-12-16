@@ -24,7 +24,7 @@ public:
 
 	virtual bool reset() = 0;
 
-	virtual bool hadReset() = 0;
+	//virtual bool hadReset() = 0;
 
 	virtual Eigen::Affine3f getPose() = 0;
 

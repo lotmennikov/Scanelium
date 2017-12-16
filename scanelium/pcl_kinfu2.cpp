@@ -46,8 +46,11 @@ bool PCL_Kinfu2::init(
 	this->dpt_width = dpt_width;
 	this->rgb_height = rgb_height;
 	this->rgb_width = rgb_width;
-	this->_has_image = false;
-	this->_had_reset = false;
+
+	this->angle_diff = 0, this->dist_diff = 0;
+	this->_failed = false;
+	//this->_has_image = false;
+	//this->_had_reset = false;
 
 	kfusion::KinFuParams kp = kfusion::KinFuParams::default_params();
 	kp.cols = dpt_width; kp.rows = dpt_height;
@@ -56,6 +59,8 @@ bool PCL_Kinfu2::init(
 	kp.volume_dims = cv::Vec3i(grid_x, grid_y, grid_z);
 	kp.volume_size = cv::Vec3f(size_x, size_y, size_z);
 	kp.volume_pose = eigen2cv(pose).inv();
+	kp.icp_pose_angle_thres = kf::deg2rad(30.0f);
+	kp.icp_pose_dist_thres = 0.20f;
 
 	_init_pose = pose;
 	//kp.volume_pose = cv::Affine3f().translate(cv::Vec3f(-kp.volume_size[0] / 2, -kp.volume_size[1] / 2, 0.4f));
@@ -63,18 +68,13 @@ bool PCL_Kinfu2::init(
 	if (_tracker != NULL) delete _tracker;
 	_tracker = new kfusion::KinFu(kp);
 
-	//std::cout << "kf init cvT" << std::endl;
-	//std::cout << kp.volume_pose.translation() << std::endl;
-
-	//std::cout << "kf init eT" << std::endl;
-	//std::cout << pose.translation() << std::endl;
-
 	return true;
 }
 
 bool PCL_Kinfu2::update(const DepthMap& depth) {
-	_has_image = false;
-	_had_reset = false;
+	//_has_image = false;
+	//_failed = false;
+	//_had_reset = false;
 
 	kfusion::cuda::Depth dp;
 	kfusion::cuda::Image view_device_;
@@ -82,10 +82,11 @@ bool PCL_Kinfu2::update(const DepthMap& depth) {
 			
 	//initStart();
 	dp.upload(depth, dpt_width * sizeof(unsigned short), dpt_height, dpt_width);
-	_has_image = _tracker->operator()(dp);
+	
+	_failed = !_tracker->operator()(dp, angle_diff, dist_diff);
 	//printElapsed("Tick " + to_string(tick));
 
-	if (_has_image) {
+	if (!_failed) {
 		int mode = 0;
 		_tracker->renderImage(view_device_, mode);
 
@@ -96,12 +97,14 @@ bool PCL_Kinfu2::update(const DepthMap& depth) {
 		
 		return true;
 	}
-
-	return true;
+	else {
+		//printf("Adiff: %f, Ddiff %f\n", acos(angle_diff) / 3.14159265f * 180.f, dist_diff);
+		return false;
+	}
 }
 
 bool PCL_Kinfu2::getImage(std::vector<unsigned char>& bits) {
-	if (_tracker == NULL || !_has_image) return false;
+	if (_tracker == NULL) return false;
 
 	bits.resize(dpt_width * dpt_height * 3);
 	int idx = 0;
@@ -124,16 +127,17 @@ bool PCL_Kinfu2::getPrediction(std::vector<unsigned short>&) {
 bool PCL_Kinfu2::reset() {
 	if (_tracker != NULL) {
 		_tracker->reset();
-		_has_image = false;
-		_had_reset = true;
+		_failed = false;
+		//_had_reset = true;
 		return true;
 	} else
 		return false;
 }
 
+/*
 bool PCL_Kinfu2::hadReset() {
 	return _had_reset;
-}
+}*/
 
 Eigen::Affine3f PCL_Kinfu2::getPose() {
 	if (_tracker == NULL) return Eigen::Affine3f();

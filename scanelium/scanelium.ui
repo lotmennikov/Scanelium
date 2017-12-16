@@ -100,14 +100,14 @@ QToolBox {
 </string>
         </property>
         <property name="currentIndex">
-         <number>2</number>
+         <number>1</number>
         </property>
         <widget class="QWidget" name="initPage">
          <property name="geometry">
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>132</width>
+           <width>127</width>
            <height>388</height>
           </rect>
          </property>
@@ -290,27 +290,30 @@ QToolBox {
                <property name="layoutDirection">
                 <enum>Qt::LeftToRight</enum>
                </property>
+               <property name="currentText">
+                <string>Scene center</string>
+               </property>
                <property name="currentIndex">
-                <number>1</number>
+                <number>0</number>
                </property>
                <item>
                 <property name="text">
-                 <string>Центр сцены</string>
+                 <string>Scene center</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>Центр грани</string>
+                 <string>Face center</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>Центр ребра</string>
+                 <string>Edge center</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>Верхний угол</string>
+                 <string>Upper corner</string>
                 </property>
                </item>
               </widget>
@@ -352,8 +355,8 @@ QToolBox {
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>126</width>
-           <height>114</height>
+           <width>200</width>
+           <height>512</height>
           </rect>
          </property>
          <attribute name="label">
@@ -363,14 +366,28 @@ QToolBox {
           <item>
            <widget class="QLabel" name="scansizeLabel">
             <property name="text">
-             <string>Размер: куб 1 м</string>
+             <string>Size: 1m cube</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="scanimagesLabel">
             <property name="text">
-             <string>Количество снимков:</string>
+             <string>Number of images:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="angleLabel">
+            <property name="text">
+             <string>Angle diff:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="distLabel">
+            <property name="text">
+             <string>Distance diff:</string>
             </property>
            </widget>
           </item>
@@ -419,14 +436,14 @@ QToolBox {
           <item>
            <widget class="QLabel" name="imagesLabel">
             <property name="text">
-             <string>Количество снимков:</string>
+             <string>Number of images:</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="iterationslabel">
             <property name="text">
-             <string>Количество итераций: 1</string>
+             <string>Iterations: 1</string>
             </property>
            </widget>
           </item>
@@ -452,7 +469,7 @@ QToolBox {
           <item>
            <widget class="QLabel" name="threadsLabel">
             <property name="text">
-             <string>Количество потоков: 4</string>
+             <string>Threads: 4</string>
             </property>
            </widget>
           </item>
@@ -501,14 +518,14 @@ QToolBox {
           <item>
            <widget class="QLabel" name="residualLabel">
             <property name="text">
-             <string>Среднее отклонение: 0.00</string>
+             <string>Current std: 0.00</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="initialResidualLabel">
             <property name="text">
-             <string>Исходное отклонение: 0.00</string>
+             <string>Initial std: 0.00</string>
             </property>
            </widget>
           </item>

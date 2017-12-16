@@ -43,6 +43,8 @@ Controller::Controller() : QObject(NULL) {
 	connect(_rc, &Reconstructor::newPose, this, &Controller::poseUpdate);
 	connect(_rc, &Reconstructor::framesUpdate, this, &Controller::framesUpdate);
 	connect(_rc, &Reconstructor::finished, this, &Controller::reconstructionFinished);
+	connect(_rc, &Reconstructor::message, this, &Controller::recMessage);
+	connect(_rc, &Reconstructor::diffUpdate, this, &Controller::poseDiffUpdate);
 
 	_cm = new ColorMapper();
 	connect(this, &Controller::colormapStart, _cm, &ColorMapper::start);
@@ -50,10 +52,6 @@ Controller::Controller() : QObject(NULL) {
 	connect(_cm, &ColorMapper::message, this, &Controller::colormapMessage);
 	connect(_cm, &ColorMapper::error, this, &Controller::errorBox);
 	connect(_cm, &ColorMapper::finished, this, &Controller::colormapFinished);
-	/*
-	connect(kinfuthread, &KinfuController::kinfuMessage, this, &Scanelium::refreshStatus);
-	*/
-
 }
 
 void Controller::init() {
@@ -356,15 +354,15 @@ void Controller::startReconstruction() {
 	case INIT:
 		setState(KINFU);
 		break;
-	case KINFU: // on/off часто путается
+	case KINFU: // on/off are combined
 		stopReconstruction();
 		return;
 		break;
 	case COLOR: case FINAL:
-		//if (unsaved_model) {
-		//	if (!saveDialog()) return;
-		//}
-		setState(KINFU);
+		if (unsaved_model)
+			emit askConfirmation(KINFU, 0);
+		else
+			setState(KINFU);
 		break;
 	}
 }
@@ -389,6 +387,10 @@ void Controller::resetReconstruction() {
 		
 }
 
+void Controller::recMessage(QString msg, int mark) {
+	emit statusUpdate(msg);
+}
+
 void Controller::gotRendering(QImage render) {
 	int width = cam_res_depth_x[_cam_set.depth_res];
 	int height= cam_res_depth_y[_cam_set.depth_res];
@@ -411,6 +413,8 @@ void Controller::reconstructionFinished(bool has_model) {
 	if (has_model && _rc->getModel(_model)) {
 		this->has_model = true;
 		emit meshUpdate(_model);
+		emit statusUpdate(QString::fromLocal8Bit("Mesh model: %1 vertices, %2 triangles").arg(_model->getVertsSize()).arg(_model->getIndsSize() / 3));
+
 		setState(COLOR);
 	}
 	else {
@@ -430,7 +434,7 @@ void Controller::startColormap() {
 
 	_cm->init(this->_model, this->_col_set);
 
-	emit statusUpdate(QString::fromLocal8Bit("Вычисление цвета вершин..."));
+	emit statusUpdate(QString::fromLocal8Bit("Color mapping..."));
 	emit colormapErrorUpdate(std::nan(""), std::nan(""));
 
 	emit colormapStart();
@@ -461,43 +465,14 @@ void Controller::colormapFinished(bool ok) {
 		setState(FINAL);
 		emit meshUpdate(_model);
 		unsaved_model = true;
-		emit statusUpdate(QString::fromLocal8Bit("Готово"));
+		emit statusUpdate(QString::fromLocal8Bit("Color mapping finished"));
 	}
 	else {
-		emit statusUpdate(QString::fromLocal8Bit("Ошибка при вычислении"));
+		emit statusUpdate(QString::fromLocal8Bit("Color mapping failed"));
 	}
 	emit showSoftStopColormap(false);
 	emit showProgress(false, 0);
 }
-
-/*
-void Scanelium::meshReady(bool isready) {
-	if (isready) {
-		//		this->mesh = kinfuthread->mesh;
-		kinfuthread->stopCapture();
-
-		this->state = ProgramState::COLOR;
-		ui.bigViewer->state = ProgramState::COLOR;
-		ui.bigViewer->setPolygonMesh(kinfuthread->mesh, false);
-		ui.scanTab->setCurrentIndex(2);
-		this->refreshStatus(QString::fromLocal8Bit("Модель: %1 вершин, %2 полигонов").arg(kinfuthread->mesh->cloud.width).arg(kinfuthread->mesh->polygons.size()));
-		this->statusProgress->setVisible(false);
-
-		ui.imagesLabel->setText(QString::fromLocal8Bit("Количество снимков: %1").arg(kinfuthread->cameras.size()));
-		ui.residualLabel->setText(QString::fromLocal8Bit("Среднее отклонение: ---"));
-		ui.initialResidualLabel->setText(QString::fromLocal8Bit("Исходное отклонение: ---"));
-	}
-	else {
-		if (!kinfuthread->record_only)
-			this->refreshStatus(QString::fromLocal8Bit("Ошибка. Модель не получена."));
-
-		this->state = ProgramState::INIT;
-		ui.bigViewer->state = ProgramState::INIT;
-		kinfuthread->startCapture();
-		ui.scanTab->setCurrentIndex(0);
-	}
-}
-*/
 
 // ================
 //  PARAMS, UI, IO
@@ -644,7 +619,7 @@ bool Controller::switchTab(int index, bool confirmed) {
 			}
 		}
 		break;
-	case FINAL: // есть модель, но она может заново расцвечиваться
+	case FINAL: // model may be colored again
 		switch (index) {
 		case 0:
 			if (unsaved_model && !confirmed) {
@@ -715,6 +690,7 @@ void Controller::openFile(QString filename) {
 
 			emit statusUpdate("Loaded scl file");
 			emit meshUpdate(_model);
+			emit framesUpdate(_model->getFramesSize());
 			setState(COLOR);
 		} else {
 			emit statusUpdate("Failed");

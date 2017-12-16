@@ -36,41 +36,59 @@ private:
 	int depth_last_index;
 	int color_last_index;
 
+	// reconstruction parameters
 	rec_settings _rec_set;
+	// camera parameters
 	cam_settings _cam_set;
+	// color mapping parameters
 	colormap_settings _col_set;
 
+	// convert depth map to point cloud and pass to viewer
 	void generateCloud();
+	// internal program state switching
 	void setState(ProgramState);
-
 public:
 
 	Controller();
 	~Controller();
 
+	// prepare camera and threads
 	void init();
-
+	// current program state
 	int getState();
+	// has unsaved colored mesh model
 	bool unsavedModel();
+	// current focal length
 	float getFocalX() { return _cam_set.fx; }
+	// current snapshot rate
 	int getSnapshotRate() { return _rec_set.snapshot_rate; }
 
 public slots:
 
 // UI slots
+	// set camera resolution
 	void setCamRes(int slot, int res_index);
+	// set size of voxel grid
 	void setVolumeSize(float vsize);
+	// set initial camera pose
 	void setCameraPose(int pose);
+	// double volume height
 	void setDoubleY(bool);
+	// record ONI
 	void setRecording(bool);
+	// record ONI, do not reconstruct
 	void setRecordOnly(bool);
+	// set number of colormap iterations
 	void setNumColormapIterations(int);
+	// set number of CPU threads
 	void setNumColormapThreads(int);
+	// inrease detalization (more mesh vertices)
 	void setIncreaseModel(bool);
-	
+	// set camera focal lenghts
 	void setFocalLength(float fx, float fy);
+	// set rate of saving color images
 	void setSnapshotRate(int rate);
-
+	// allow UI tab switching
 	bool switchTab(int index, bool confirmed = false);
 
 	void startReconstruction();
@@ -92,6 +110,7 @@ public slots:
 	void oniError(std::string);
 
 // rec slots
+	void recMessage(QString msg, int mark);
 	void gotRendering(QImage img);
 	void reconstructionFinished(bool has_model);
 
@@ -123,11 +142,9 @@ signals:
 	void recSettingsUpdate(rec_settings);
 	void cloudUpdate(QVector<QVector3D>, QVector<QVector3D>);
 	void renderUpdate(QImage);
+	void poseDiffUpdate(float, float);
 	void meshUpdate(Model::Ptr);
 	void poseUpdate(QMatrix4x4);
 	void framesUpdate(int count);
 	void colormapErrorUpdate(double, double);
-
-	//void startCapture();
-	//void stopCapture();
 };

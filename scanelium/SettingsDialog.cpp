@@ -10,9 +10,9 @@ SettingsDialog::SettingsDialog( QWidget * parent, float focal_, int snapshot_) :
 	this->focal = focal_;
 	this->snapshot_rate = snapshot_;
 
-	ui.focalLengthLabel->setText(QString::fromLocal8Bit("Фокусное расстояние"));
+	ui.focalLengthLabel->setText(QString::fromLocal8Bit("Focal length (640x480 resolution)"));
 	ui.focalEdit->setText(QString("%1").arg(focal));
-	ui.freqLabel->setText(QString::fromLocal8Bit("Частота сохранения цветных изображений:  1 снимок/ %1 с").arg(snapshot_rate/1000.0));
+	ui.freqLabel->setText(QString::fromLocal8Bit("Color image saving frequency: 1 frame/ %1 s").arg(snapshot_rate/1000.0));
 	ui.freqSlider->setValue(snapshot_rate/100.0f);
 	ui.focalSlider->setValue(focal_);
 
@@ -56,10 +56,10 @@ void SettingsDialog::freqSliderChanged(int value) {
 	this->snapshot_rate = value * 100;
 
 	if (this->snapshot_rate > 0) {
-		ui.freqLabel->setText(QString::fromLocal8Bit("Частота сохранения цветных изображений: 1 снимок/ %1 с").arg(snapshot_rate / 1000.0));
+		ui.freqLabel->setText(QString::fromLocal8Bit("Color image saving frequency: 1 frame/ %1 s").arg(snapshot_rate / 1000.0));
 	}
 	else {
-		ui.freqLabel->setText(QString::fromLocal8Bit("Частота сохранения цветных изображений: все подряд"));
+		ui.freqLabel->setText(QString::fromLocal8Bit("Color image saving frequency: every frame"));
 	}
 	emit snapshotChanged(this->snapshot_rate);
 }

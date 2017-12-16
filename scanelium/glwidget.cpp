@@ -159,56 +159,6 @@ void glWidget::initializeGL() {
 
 	glPointSize(2.0f);
 }
-/*
-bool glWidget::resetBuffers(QVector<color_vertex> vert, QVector<unsigned int> ind) {
-//	QGLFunctions::glDisableVertexAttribArray(VERTICES);
-//	
-	
-	while (painting) {}
-
-	initialized = false;
-
-	this->vertices_ = QVector<color_vertex>(vert);
-	this->indices_ = QVector<unsigned int>(ind);
-
-	colorProgram.bind();
-
- 
-
-	mVao = new QOpenGLVertexArrayObject( this );
-    mVao->create();
-    mVao->bind();
-
-    // Setup VBOs and IBO (use QOpenGLBuffer to buffer data,
-    // specify format, usage hint etc). These will be
-    // remembered by the currently bound VAO
-    mVertex.create();
-    mVertex.setUsagePattern( QOpenGLBuffer::StreamDraw );
-    mVertex.bind();
-	mVertex.allocate(vertices_.constData(), vertices_.size()*sizeof(color_vertex));
-	colorProgram.enableAttributeArray("vertex");
-    colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-	
-	colorProgram.enableAttributeArray("color");
-    colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float)*3, 3, sizeof(color_vertex));
-
-	mIndex = QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
-	mIndex.create();
-	mIndex.setUsagePattern(QOpenGLBuffer::StreamDraw);
-	mIndex.bind();
-	mIndex.allocate(indices_.constData(), indices_.size()*sizeof(unsigned int));
-
-	mVao->release();
-
-	colorProgram.release();
-
-	initialized = true;
-
-	this->updateGL();
-
-	return true;
-}
-*/
 
 void glWidget::computeQuadVertices() {
 	//QMatrix4x4 coords;
@@ -226,7 +176,6 @@ void glWidget::computeQuadVertices() {
 
 }
 
-
 void glWidget::paintGL() {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -237,8 +186,6 @@ void glWidget::paintGL() {
 	QMatrix4x4 camTransform;
 	camTransform.rotate(angle1, 0, 1, 0);
 	camTransform.rotate(angle2, 1, 0, 0);
-
-//	mMatrix.translate(0.5, -0.5, -0.5);
 
 	QVector3D cameraPosition = camTransform * (QVector3D(0, 0, distance)) + camLook;
 	QVector3D cameraUpDirection = camTransform * QVector3D(0,1,0);
@@ -690,19 +637,11 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
     mVaoMesh->create();
     mVaoMesh->bind();
 
-    // Setup VBOs and IBO (use QOpenGLBuffer to buffer data,
-    // specify format, usage hint etc). These will be
-    // remembered by the currently bound VAO
 	meshBuffer.create();
     meshBuffer.setUsagePattern( QOpenGLBuffer::StreamDraw );
     meshBuffer.bind();
 	meshBuffer.allocate(mesh_points.constData(), mesh_points.size()*sizeof(color_vertex));
 	meshBuffer.release();
-//	colorProgram.enableAttributeArray("vertex");
-//    colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-	
-//	colorProgram.enableAttributeArray("color");
-//    colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float)*3, 3, sizeof(color_vertex));
 
 	meshindBuffer = QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
 	meshindBuffer.create();
@@ -713,7 +652,6 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 
 	mVaoMesh->release();
 
-//	colorProgram.release();
 	initialized = true;
 	draw_color = has_color;
 	

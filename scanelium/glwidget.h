@@ -26,12 +26,7 @@ typedef struct {
 } color_vertex;
 
 typedef color_vertex cn_vertex;
-/*
-typedef struct {
-	float vertex[3];
-	float normal[3];
-} normal_vertex;
-*/
+
 class glWidget : public QGLWidget, protected QOpenGLFunctions
 {
     Q_OBJECT
@@ -86,10 +81,6 @@ private:
 	GLuint texture;
 	QPixmap img;
 
-//	QVector<color_vertex> vertices_;
-//	QVector<unsigned int> indices_;
-
-//	QPlainTextEdit* log;
 	QVector3D offset;
 	QVector<QMatrix4x4> camposes;
 	QVector<float> cam_points;
@@ -115,8 +106,6 @@ public:
     void paintGL();
 
 	void computeQuadVertices();
-//	void setLog(QPlainTextEdit*);
-//	bool resetBuffers(QVector<color_vertex>, QVector<unsigned int>); 
 
     void mouseMoveEvent(QMouseEvent *);
     void mousePressEvent(QMouseEvent *);

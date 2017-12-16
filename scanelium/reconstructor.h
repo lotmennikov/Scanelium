@@ -82,10 +82,11 @@ private slots:
 
 signals:
 	void ready();
-	void error(std::string);
-	void hadReset();
+	void message(QString msg, int mark);
+	//void hadReset();
 	void newRendering(QImage);
 	void newPose(QMatrix4x4);
 	void framesUpdate(int);
+	void diffUpdate(float, float);
 	void finished(bool);
 };

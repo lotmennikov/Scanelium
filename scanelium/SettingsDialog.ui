@@ -23,7 +23,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>Настройки</string>
+   <string>Settings</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
@@ -35,13 +35,13 @@
       </sizepolicy>
      </property>
      <property name="title">
-      <string>Настройки</string>
+      <string>Settings</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_2">
       <item>
        <widget class="QLabel" name="focalLengthLabel">
         <property name="text">
-         <string>Фокусное расстояние (для разрешения 640х480)</string>
+         <string>Focal length (640х480 resolution)</string>
         </property>
        </widget>
       </item>
@@ -78,7 +78,7 @@
       <item>
        <widget class="QLabel" name="freqLabel">
         <property name="text">
-         <string>Частота сохранения цветных изображений : 2 сн/с</string>
+         <string>Color images saving frequency: 2 fps</string>
         </property>
        </widget>
       </item>

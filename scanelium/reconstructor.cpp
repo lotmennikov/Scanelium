@@ -158,14 +158,18 @@ void Reconstructor::update() {
 				last_processed_dpt = current_dpt;
 				data_mutex.unlock();
 				if (_kf->update(&dpt[0])) {
-					if (_kf->hadReset())
-						emit hadReset();
+					emit message("Tracking...", 0);
+					//if (_kf->hadReset())
+					//	emit hadReset();
 
 					Affine3f pose;
 					pose = _kf->getPose();
-					//cout << "curr T" << endl;
-					//cout << pose.translation() << endl;
 					emit newPose(toQtPose(pose.rotation(), pose.translation()));
+
+
+					float angle_diff = ((PCL_Kinfu2*)_kf)->getPoseAngleDiff();
+					float dist_diff = ((PCL_Kinfu2*)_kf)->getPoseDistDiff();
+					emit diffUpdate(angle_diff, dist_diff);
 
 					data_mutex.lock();
 					seq_pose.push_back(make_pair(last_processed_dpt, pose));
@@ -195,12 +199,19 @@ void Reconstructor::update() {
 						timer.restart();
 					}
 				}
-				else qDebug("Reconstructor - processing failed");
+				else {
+					float angle_diff = ((PCL_Kinfu2*)_kf)->getPoseAngleDiff();
+					float dist_diff = ((PCL_Kinfu2*)_kf)->getPoseDistDiff();
+					emit diffUpdate(angle_diff, dist_diff);
+
+					qDebug("Reconstructor - processing failed");
+					emit message("Tracking failed!", 2);
+				}
 				qDebug("Recontructor - fin processing");
 			}
 			else {
 				qDebug("Recontructor - no frame");
-				Sleep(5);
+				Sleep(1);
 			}
 			emit ready();
 		}
@@ -256,7 +267,7 @@ bool Reconstructor::finish(bool extract) {
 		qDebug("Reconstructor::finish getting model");
 		
 		//float* vbo; int num_vertices;
-		//_has_model = _kf->extractMeshIBO(vbo, num_vertices);
+		//_has_model = _kf->extractMeshVBO(vbo, num_vertices);
 		
 		float* vbo; int num_vertices; int* ibo; int num_indices;
 		_has_model = _kf->extractMeshIBO(vbo, num_vertices, ibo, num_indices);

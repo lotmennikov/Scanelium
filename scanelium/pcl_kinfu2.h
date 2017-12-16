@@ -10,8 +10,11 @@ class PCL_Kinfu2 : public KinfuInterface {
 	int rgb_width, rgb_height;
 
 	cv::Mat _rgb_view_host;
-	bool _has_image;
-	bool _had_reset;
+	bool _failed;
+
+	float angle_diff, dist_diff;
+	//bool _has_image;
+	//bool _had_reset;
 
 	Eigen::Affine3f _init_pose;
 
@@ -34,7 +37,8 @@ public:
 
 	bool reset();
 
-	bool hadReset();
+	float getPoseAngleDiff() const { return acos(angle_diff) / 3.14159265f * 180.f; }
+	float getPoseDistDiff() const { return dist_diff; }
 
 	Eigen::Affine3f getPose();
 
