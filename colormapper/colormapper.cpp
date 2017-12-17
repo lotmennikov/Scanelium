@@ -437,7 +437,7 @@ ColorMapper::mapColorsZhouKoltun() {
 
 					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
-					emit message(QString::fromLocal8Bit("Предобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
+					emit message(QString::fromLocal8Bit("Preprocessing %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
 
 					currentcam++;
 				
@@ -503,7 +503,7 @@ ColorMapper::mapColorsZhouKoltun() {
 	for (int iteration = 0; iteration < iteration_count; ++iteration) {
 		printf("**** Iteration #%d ****\n\n", iteration);
 		if (_stop) return;
-		emit message(QString::fromLocal8Bit("Итерация %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
+		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
 
 		// Average C(p)
 		for (int i = 0; i< comp_bw.size(); ++i) 
@@ -696,7 +696,7 @@ ColorMapper::mapColorsZhouKoltun() {
 						cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
 
-						emit message(QString::fromLocal8Bit("Итерация %1 - Изображение %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
+						emit message(QString::fromLocal8Bit("Iteration %1 - Image %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
 						
 						currentcam++;
 				
@@ -885,7 +885,7 @@ ColorMapper::mapColorsZhouKoltun() {
 
 					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
 				
-					emit message(QString::fromLocal8Bit("Постобработка %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
+					emit message(QString::fromLocal8Bit("Postprocessing %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
 
 					currentcam++;
 				

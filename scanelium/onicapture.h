@@ -28,6 +28,7 @@ class ONICapture : public QObject {
 	int _init_type;
 	bool _started;
 	bool _stop;
+	bool _sync;
 
 public:
 	int * supportedColor;

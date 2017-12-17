@@ -62,42 +62,10 @@ bool Reconstructor::init(rec_settings rec_set, cam_settings cam_set) {
 
 	Eigen::Vector3f v_size(rec_set.volume_size, rec_set.volume_size * (rec_set.doubleY ? 2 : 1), rec_set.volume_size);
 
-	_init_pose = Affine3f::Identity();
-	switch (rec_set.camera_pose) {
-	case CENTER:
-	{
-		Eigen::Vector3f t = v_size * 0.5f;
-		_init_pose = Eigen::Translation3f(t);
-	}
-	break;
-	case CENTERFACE:
-	{
-		Eigen::Matrix3f R = Eigen::Matrix3f::Identity();   // * AngleAxisf( pcl::deg2rad(-30.f), Vector3f::UnitX());
-		Eigen::Vector3f t = v_size * 0.5f - Vector3f(0, 0, v_size(2) / 2 + rec_set.camera_distance);
+	_init_pose = computeCamPoseE(rec_set);
 
-		_init_pose.rotate(R);
-		_init_pose.translate(t);
-	}
-	break;
-	/*
-	case CENTEREDGE:
-	{
-		// TODO проверить
-		Eigen::Matrix3f R = Eigen::Matrix3f::Identity() * Eigen::AngleAxisf(pcl::deg2rad(45.f), Vector3f::UnitX());
-		Eigen::Vector3f t = Vector3f(v_size(0) / 2, 0, v_size(2) / 2);
-
-		pose = Eigen::Translation3f(t) * Eigen::AngleAxisf(R);
-	}
-	break;
-	case VERTEX:
-	{
-		Eigen::Vector3f t = Eigen::Vector3f::Zero();
-		pose = Eigen::Translation3f(t);
-	}
-	break;*/
-	}
-	cout << "init T" << endl;
-	cout << _init_pose.translation() << endl;
+	//cout << "init T" << endl;
+	//cout << _init_pose.translation() << endl;
 
 	float focal_ratio_color = cam_res_color_x[cam_set.color_res] / 640.0f;
 	_default_fparams.color_width  = cam_res_color_x[cam_set.color_res];
@@ -116,7 +84,7 @@ bool Reconstructor::init(rec_settings rec_set, cam_settings cam_set) {
 		_default_fparams.depth_width, _default_fparams.depth_height,
 		_default_fparams.color_width, _default_fparams.color_height,
 		_default_fparams.depth_fx, _default_fparams.depth_fy,
-		256, 256, 256, 
+		rec_set.grid_size, rec_set.grid_size, rec_set.grid_size,
 		v_size.x(), v_size.y(), v_size.z(),
 		_init_pose);
 }
@@ -307,10 +275,18 @@ void Reconstructor::checkSequences() {
 	while (seq_pose.size() > 30) seq_pose.pop_front();
 
 	while (seq_depth.size() > 0 && seq_image.size() > 0 && seq_pose.size() > 0) {
-		int ind_depth = seq_depth.front().first;
 		int ind_image = seq_image.front().first;
-		int ind_pose = seq_pose.front().first;
-		if (ind_depth == ind_image && ind_image == ind_pose) {
+		
+		if (ind_image == -1) { // this image cannot be associated with any frame, so it is associated with the latest processed depth
+			int ind_pose = seq_pose.back().first; // take latest processed pose and find its depth
+			while (!seq_depth.empty() && seq_depth.front().first != ind_pose) seq_depth.pop_front(); // remove all previous frames
+			if (seq_depth.empty()) {
+				qDebug("Could not find depth frame in the list?..");
+				break; // something went wrong
+			}
+			//int ind_depth = seq_depth.front().first;
+			// assumed here (ind_depth == ind_pose) 
+
 			// create new frame
 			Frame* f = new Frame();
 			f->img = seq_image.front().second;
@@ -320,17 +296,37 @@ void Reconstructor::checkSequences() {
 
 			// process frame
 			_ip->process(f);
-			
+
 			// pop all parts
-			seq_depth.pop_front();
+			while (!seq_pose.empty()) seq_pose.pop_front();	// all previous frames are deprecated
+			seq_depth.pop_front();							// but depth is still needed
 			seq_image.pop_front();
-			seq_pose.pop_front();
 		}
 		else {
-			int min_ind = min(ind_depth, min(ind_pose, ind_image));
-			if (ind_depth == min_ind) seq_depth.pop_front();
-			if (ind_image == min_ind) seq_image.pop_front();
-			if (ind_pose == min_ind) seq_pose.pop_front();
+			int ind_depth = seq_depth.front().first;
+			int ind_pose = seq_pose.front().first;
+			if (ind_depth == ind_pose && ind_image == ind_pose) {
+				// create new frame
+				Frame* f = new Frame();
+				f->img = seq_image.front().second;
+				f->depth = seq_depth.front().second;
+				f->pose = seq_pose.front().second;
+				f->fparams = _default_fparams;
+
+				// process frame
+				_ip->process(f);
+
+				// pop all parts
+				seq_depth.pop_front();
+				seq_image.pop_front();
+				seq_pose.pop_front();
+			}
+			else {
+				int min_ind = min(min(ind_depth, ind_pose), ind_image);
+				if (ind_depth == min_ind) seq_depth.pop_front();
+				if (ind_image == min_ind) seq_image.pop_front();
+				if (ind_pose == min_ind) seq_pose.pop_front();
+			}
 		}
 	}
 
@@ -371,9 +367,15 @@ void Reconstructor::newColor(QImage new_rgb, int frame_index) {
 
 	new_rgb = new_rgb.convertToFormat(QImage::Format_RGB888);
 	last_rgb = std::vector<uchar>(new_rgb.bits(), new_rgb.bits() + (new_rgb.width()*new_rgb.height() * 3));
-	current_rgb = frame_index;
-
-	seq_image.push_back(make_pair(current_rgb, new_rgb));
+	if (frame_index != -1) {
+		current_rgb = frame_index;
+		seq_image.push_back(make_pair(current_rgb, new_rgb));
+	}
+	else {
+		current_rgb = -1;
+		while (!seq_image.empty()) seq_image.pop_back(); // only one must stay
+		seq_image.push_back(make_pair(-1, new_rgb));
+	}
 	
 	data_mutex.unlock();
 }

@@ -133,8 +133,12 @@ struct cam_settings {
 
 struct rec_settings {
 	float volume_size;
+	int grid_size;
 	bool doubleY;
 	int camera_pose;
+
+	float camera_x_angle;
+	float camera_y_angle;
 	float camera_distance;
 	bool recording;
 	bool recording_only;

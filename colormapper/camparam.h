@@ -22,7 +22,7 @@ public:
 									snapshot_rate(cp.snapshot_rate), camera_ratio_diff(cp.camera_ratio_diff) {}
 
 	CameraParams(float fx, float fy, float cwidth, float cheight, float dwidth, float dheight, float snapshotrate = 0) :
-		focal_x(fx), focal_y(fy), color_width(cwidth), color_height(cheight), depth_width(dwidth), depth_height(cheight), snapshot_rate(snapshotrate) {
+		focal_x(fx), focal_y(fy), color_width(cwidth), color_height(cheight), depth_width(dwidth), depth_height(dheight), snapshot_rate(snapshotrate) {
 
 		if (abs((640.0f / 480.0f) - (color_width / color_height)) > 0.000001f)
 			camera_ratio_diff = true;
@@ -49,7 +49,7 @@ public:
 				color_height= 480;
 				break;
 		}
-		if (640.0 / 480.0 != color_width / color_height)
+		if (640.0f / 480.0f != color_width / color_height)
 			camera_ratio_diff = true;
 		else 
 			camera_ratio_diff = false;

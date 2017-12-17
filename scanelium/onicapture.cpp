@@ -12,6 +12,7 @@ ONICapture::ONICapture() : QObject(NULL) {
 
 	recorder = nullptr;
 	recorderStarted = false;
+	_sync = true;
 }
 
 bool ONICapture::initDevice() {
@@ -179,8 +180,13 @@ void ONICapture::setColorMode(int index) {
 	if (mColorStream.isValid()) {
 		mColorStream.stop();
 	}
-	if (supportedColor[index] != -1)
+	if (supportedColor[index] != -1) {
 		mColorStream.setVideoMode(mDevice->getSensorInfo(openni::SENSOR_COLOR)->getSupportedVideoModes()[supportedColor[index]]);
+		if (index != 2)
+			_sync = true;
+		else
+			_sync = false;
+	}
 }
 
 void ONICapture::setDepthMode(int index) {
@@ -197,9 +203,8 @@ void ONICapture::start() {
 
 	openni::Status rc;
 	
-	setRegistration(true);
-	syncTimestamp(true);
-	setAutoWhiteBalanceAndExposure(true);
+	//setRegistration(true);
+	//syncTimestamp(true);
 
 	rc = mColorStream.start();
 	if (rc != openni::STATUS_OK)
@@ -216,7 +221,8 @@ void ONICapture::start() {
 	}
 
 	setRegistration(true);
-	syncTimestamp(true);
+	syncTimestamp(_sync);
+	setAutoWhiteBalanceAndExposure(true);
 
 	if (!mColorStream.isValid() || !mDepthStream.isValid())
 		emit error("Coudn't start stream");
@@ -277,7 +283,7 @@ void ONICapture::run() {
 				VideoFrameRef frame_rgb = getImage(index);
 				int width = this->getColorResolutionX();
 				int height = this->getColorResolutionY();
-				int frame_index = frame_rgb.getFrameIndex();
+				int frame_index = _sync ? frame_rgb.getFrameIndex() : -1;
 //				printf("Color Frame: %d x %d\n", width, height);
 
 				uchar* rgb_buffer = new uchar[3 * width*height];

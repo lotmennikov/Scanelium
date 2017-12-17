@@ -4,6 +4,8 @@
 #include <qfileinfo.h>
 #include <qdatetime.h>
 
+#include "utils.h"
+
 Controller::Controller() : QObject(NULL) {
 	_state = NONE;
 
@@ -13,11 +15,15 @@ Controller::Controller() : QObject(NULL) {
 	_cam_set.fy = 541.316f;
 
 	_rec_set.volume_size = 1.0f;
+	_rec_set.grid_size = 256;
 	_rec_set.doubleY = false;
 	_rec_set.recording = false;
 	_rec_set.recording_only = false;
 	_rec_set.camera_pose = CameraPose::CENTERFACE;
-	_rec_set.camera_distance = 0.4f;
+	_rec_set.camera_distance = 0.9f;
+	_rec_set.camera_x_angle = 0;
+	_rec_set.camera_y_angle = 0;
+
 	_rec_set.snapshot_rate = 1000;
 	emit recSettingsUpdate(_rec_set);
 
@@ -209,6 +215,7 @@ void Controller::generateCloud() {
 		(color_height - (float)height*depth_to_color) / 2.0 - 3.0 : 
 		0.0;
 
+	QMatrix4x4 pose = computeCamPose(_rec_set);
 
 	for (int v = 0; v < height; ++v)
 	{
@@ -225,22 +232,12 @@ void Controller::generateCloud() {
 
 				float colval = (1.0f - ((float)(depth_val) / (float)(maxdepth)))*0.8f;
 				float green = colval;
-				switch (_rec_set.camera_pose) {
-				case CENTER:
-				{
-					if (abs(pt.x()) <= vs2 && abs(pt.y()) <= vs2 * (doubleY ? 2 : 1) && abs(pt.z()) <= vs2)
-						green = 1.0f;
-				}
-				break;
-				case CENTERFACE:
-				{
-					if (abs(pt.x()) <= vs2 && abs(pt.y()) <= vs2 * (doubleY ? 2 : 1) && (pt.z() - _rec_set.camera_distance >= 0) && (pt.z() - _rec_set.camera_distance <= volume_size))
-						green = 1.0f;
-				}
-				break;
-				default:
-					break;
-				}
+
+				QVector3D pt2 = pose * pt;
+
+				if (pt2.x() > 0 && pt2.x() <= volume_size && pt2.y() > 0 && pt2.y() <= volume_size * (doubleY ? 2 : 1) && pt2.z() > 0 && pt2.z() <= volume_size)
+					green = 1.0f;
+
 				QVector3D clr(colval, green, colval);
 				if (green == 1.0f) {
 					if (has_color) {
@@ -308,6 +305,9 @@ void Controller::gotColor(QImage img, int width, int height, int index) {
 
 	this->_color = img;
 	color_last_index = index;
+
+	if (color_last_index == -1)
+		color_last_index = depth_last_index;
 
 	switch (_state) {
 	case INIT:
@@ -509,15 +509,36 @@ void Controller::setVolumeSize(float vsize) {
 	}
 }
 
+void Controller::setGridSize(float gsize) {
+	if (_state != ProgramState::INIT) return;
+
+	if (gsize >= 64 && gsize <= 512) {
+		_rec_set.grid_size = gsize;
+	}
+}
+
+
 void Controller::setCameraPose(int pose) {
 	if (_state != ProgramState::INIT) return;
 
-	if (pose == CameraPose::CENTER || pose == CameraPose::CENTERFACE) {
+	if (pose == CameraPose::CENTER || pose == CameraPose::CENTERFACE || pose == CameraPose::CUSTOM) {
 		_rec_set.camera_pose = pose;
 		emit recSettingsUpdate(_rec_set);
 	}
 	else
 		return;
+}
+
+void Controller::setCustomPose(float xangle, float yangle, float zdist) {
+	if (_state != ProgramState::INIT) return;
+
+	if (_rec_set.camera_pose == CameraPose::CUSTOM) {
+		_rec_set.camera_distance = zdist;
+		_rec_set.camera_x_angle = xangle;
+		_rec_set.camera_y_angle = yangle;
+
+		emit recSettingsUpdate(_rec_set);
+	}
 }
 
 void Controller::setDoubleY(bool dy) {
@@ -556,13 +577,13 @@ void Controller::setIncreaseModel(bool inc) {
 }
 
 void Controller::setFocalLength(float fx, float fy) {
-	if (this->_state == INIT && fx > 0 && fy > 0) {
+	if ((this->_state == NONE || this->_state == INIT) && fx > 0 && fy > 0) {
 		_cam_set.fx = fx, _cam_set.fy = fy;
 	}
 }
 
 void Controller::setSnapshotRate(int rate) {
-	if (this->_state == INIT && rate >= 0) {
+	if ((this->_state == NONE || this->_state == INIT)  && rate >= 0) {
 		_rec_set.snapshot_rate = rate;
 	}
 }

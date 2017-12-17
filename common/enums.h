@@ -5,7 +5,7 @@
 
 enum ProgramState { NONE = -1, INIT = 0, KINFU = 1, COLOR = 2, FINAL = 3 }; 
 
-enum CameraPose { CENTER, CENTERFACE, CENTEREDGE, VERTEX };
+enum CameraPose { CENTER, CENTERFACE, CUSTOM };
 
 enum DepthResolution { DEPTH_QVGA = 0, DEPTH_VGA = 1 };
 

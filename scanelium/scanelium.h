@@ -1,3 +1,16 @@
+/*
+* ============
+* SCANELIUM
+*
+* KinectFusion-based static online 3D recontruction using RGB-D cameras
+* with offline color mapping
+*
+* 2015-2017
+* ============
+*
+* Author: Lev Otmennikov
+*/
+
 #ifndef SCANELIUM_H
 #define SCANELIUM_H
 
@@ -54,10 +67,15 @@ public slots:
 	void poseComboIndexChanged(int index);
 	
 	void sizeSliderChanged(int value);
+	void gridSliderChanged(int value);
 	void iterationsSliderChanged(int value);
 	void threadsSliderChanged(int value);
 	void showSoftStopButton(bool);
-
+	
+	void xAngleChanged(int value);
+	void yAngleChanged(int value);
+	void zDistanceChanged(int value);
+	
 private:
 	Ui::ScaneliumClass ui;
 	QProgressBar* statusProgress;

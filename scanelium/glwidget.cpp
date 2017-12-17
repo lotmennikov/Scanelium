@@ -226,17 +226,8 @@ void glWidget::paintGL() {
 				offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
 				mOffsetMatrix.translate(offset);
 
-				QMatrix4x4 mPoseMatrix = QMatrix4x4();
-				switch (_rec_set.camera_pose) {
-				case CENTER:
-					mPoseMatrix.translate(_rec_set.volume_size / 2, _rec_set.volume_size / 2, _rec_set.volume_size / 2);
-					break;
-				case CENTERFACE:
-					mPoseMatrix.translate(_rec_set.volume_size / 2, _rec_set.volume_size / 2, - _rec_set.camera_distance);
-					break;
-				default:
-					break;
-				}
+				QMatrix4x4 mPoseMatrix = computeCamPose(_rec_set);
+
 				mMatrix = mcorrMatrix * mOffsetMatrix*mPoseMatrix;
 				drawCamera(mPoseMatrix, QColor(255, 255, 0));
 

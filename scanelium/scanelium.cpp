@@ -6,6 +6,7 @@
 #include <QtWidgets/qfiledialog.h>
 
 #include "settingsdialog.h"
+#include <fstream>
 
 using namespace std;
 
@@ -48,9 +49,13 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.camposeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(poseComboIndexChanged(int)));
 	
 	connect(ui.sizeSlider, &QSlider::valueChanged, this, &Scanelium::sizeSliderChanged);
+	connect(ui.gridSlider, &QSlider::valueChanged, this, &Scanelium::gridSliderChanged);
 	connect(ui.iterationsSlider, &QSlider::valueChanged, this, &Scanelium::iterationsSliderChanged);
 	connect(ui.threadsSlider, &QSlider::valueChanged, this, &Scanelium::threadsSliderChanged);
 	connect(ui.scanTab, &QToolBox::currentChanged, this, &Scanelium::tabIndexChanged);
+	connect(ui.xAngleSlider, &QSlider::valueChanged, this, &Scanelium::xAngleChanged);
+	connect(ui.yAngleSlider, &QSlider::valueChanged, this, &Scanelium::yAngleChanged);
+	connect(ui.zDistanceSlider, &QSlider::valueChanged, this, &Scanelium::zDistanceChanged);
 
 	connect(ui.actionStart, &QAction::triggered, _controller, &Controller::startReconstruction);
 	connect(ui.startButton, &QPushButton::clicked, _controller, &Controller::startReconstruction);
@@ -78,8 +83,26 @@ Scanelium::Scanelium(QWidget *parent)
 	statusProgress->setMinimum(0);
 	statusProgress->setValue(0);
 	ui.statusBar->addPermanentWidget(statusProgress, 0);
+	statusProgress->setVisible(false);
 
 	ui.scanTab->setCurrentIndex(0);
+	ui.customPoseBox->setVisible(false);
+
+	QString user_path = "./";//QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Scanelium/";
+	QFile settings = user_path + "scl.ini";
+	if (settings.exists()) {
+		ifstream f_settings;
+		f_settings.open(settings.fileName().toStdString());
+		if (f_settings.good()) {
+			float focal = 0; int snapshot_rate = 0;
+			if (f_settings >> focal)
+				if (f_settings >> snapshot_rate) {
+					_controller->setFocalLength(focal, focal);
+					_controller->setSnapshotRate(snapshot_rate);
+				}
+		}
+		f_settings.close();
+	}
 
 	QTimer::singleShot(0, _controller, &Controller::init);
 }
@@ -171,6 +194,21 @@ void Scanelium::openSettings() {
 	if (dialog->exec() == QDialog::Accepted) {
 		_controller->setFocalLength(dialog->focal, dialog->focal);
 		_controller->setSnapshotRate(dialog->snapshot_rate);
+
+		// save settings
+		QString user_path = "./";//QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Scanelium/";
+		QFile settings = user_path + "scl.ini";
+
+		ofstream f_settings;
+		f_settings.open(settings.fileName().toStdString());
+		if (f_settings.good()) {
+			float focal = dialog->focal; 
+			int snapshot_rate = dialog->snapshot_rate;
+			
+			f_settings << focal << endl;
+			f_settings << snapshot_rate << endl;
+		}
+		f_settings.close();
 	}
 	else {
 		_controller->setFocalLength(old_focal, old_focal);
@@ -182,7 +220,7 @@ void Scanelium::openSettings() {
 void Scanelium::showInfo() {
 	QMessageBox* msgbox =
 		new QMessageBox(QString::fromLocal8Bit("Info"),
-			QString::fromLocal8Bit("Scanelium \n\nver 1.200 (160901/171216) "),
+			QString::fromLocal8Bit("Scanelium \n\nVer 1.2 (171217) "),
 			QMessageBox::Information,
 			QMessageBox::Ok, 0, 0);
 	int res = msgbox->exec();
@@ -296,12 +334,25 @@ void Scanelium::depthComboIndexChanged(int index){
 
 void Scanelium::poseComboIndexChanged(int index) {
 	_controller->setCameraPose(index);
+	if (index != 2) {
+		ui.customPoseBox->setVisible(false);
+	}
+	else {
+		ui.customPoseBox->setVisible(true);
+	}
 }
 
 void Scanelium::sizeSliderChanged(int value) {
 	float new_size = value / 10.0f;
 	_controller->setVolumeSize(new_size);
 	ui.sizeLabel->setText(QString::fromLocal8Bit("Size: %1m cube").arg(new_size));
+}
+
+void Scanelium::gridSliderChanged(int value) {
+	value = (value / 32) * 32;
+	float new_grid_size = value;
+	_controller->setGridSize(new_grid_size);
+	ui.gridLabel->setText(QString::fromLocal8Bit("Resolution: %1").arg(new_grid_size));
 }
 
 void Scanelium::iterationsSliderChanged(int value) {
@@ -314,4 +365,16 @@ void Scanelium::threadsSliderChanged(int value) {
 	int threads = value;
 	_controller->setNumColormapThreads(threads);
 	ui.threadsLabel->setText(QString::fromLocal8Bit("Threads: %1").arg(value));
+}
+
+void Scanelium::xAngleChanged(int value) {
+	_controller->setCustomPose(ui.xAngleSlider->value(), ui.yAngleSlider->value(), ui.zDistanceSlider->value() / 10.0f);
+}
+
+void Scanelium::yAngleChanged(int value) {
+	_controller->setCustomPose(ui.xAngleSlider->value(), ui.yAngleSlider->value(), ui.zDistanceSlider->value() / 10.0f);
+}
+
+void Scanelium::zDistanceChanged(int value) {
+	_controller->setCustomPose(ui.xAngleSlider->value(), ui.yAngleSlider->value(), ui.zDistanceSlider->value() / 10.0f);
 }

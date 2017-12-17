@@ -68,10 +68,14 @@ public slots:
 // UI slots
 	// set camera resolution
 	void setCamRes(int slot, int res_index);
-	// set size of voxel grid
+	// set size of scene
 	void setVolumeSize(float vsize);
+	// set size of voxel grid
+	void setGridSize(float gsize);
 	// set initial camera pose
 	void setCameraPose(int pose);
+	// set params of custom pose
+	void setCustomPose(float xangle, float yangle, float zdist);
 	// double volume height
 	void setDoubleY(bool);
 	// record ONI

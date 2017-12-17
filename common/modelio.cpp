@@ -231,98 +231,92 @@ bool ModelIO::loadDPT2(std::string file, std::vector<unsigned short>& dst, int& 
 }
 
 bool ModelIO::openSCL2(QString filename, Model::Ptr& model) {
-	/*
-	QString imgpath = QFileInfo(filename).absolutePath() + "/" + QFileInfo(filename).baseName();
-
+//  < read SCL info
+	int num_mesh, num_frames;
+	string vers, mesh_name_str;
 	ifstream fin;
-	fin.open(filename.toStdString().c_str());
-
-	int num_mesh; string mesh_name; // unused
-	int camera_count;
+	fin.open(filename.toStdString());
+	getline(fin, vers);
+	cout << "FILE VER2" << endl;
+	QString imgpath = QFileInfo(filename).absolutePath() + "/" + QFileInfo(filename).baseName();
 
 	float focal_length;
 	int cwidth;	int cheight;
 	int dwidth = 640; int dheight = 480;
 
-	int ver;
-	string camera_name, vers;
-	getline(fin, vers);
-	if (vers.compare("SCL1") == 0) ver = 1;
-	else if (vers.compare("SCL2") == 0) {
-		ver = 2;
-		cout << "FILE VER2" << endl;
-	}
-	else throw "Unsupported file format";
+	fin >> num_mesh >> mesh_name_str >> num_frames >> focal_length >> cwidth >> cheight;
+	fin >> dwidth >> dheight;
 
-	fin >> num_mesh >> mesh_name >> camera_count >> focal_length >> cwidth >> cheight;
+	frame_params fparams;
+	fparams.color_width = cwidth; fparams.color_height= cheight;
+	fparams.depth_width = dwidth; fparams.depth_height= dheight;
+	float focal_ratio_depth = dwidth / 640.0f;
+	float focal_ratio_color = cwidth / 640.0f;
+	fparams.color_fx = focal_length * focal_ratio_color;
+	fparams.color_fy = focal_length * focal_ratio_color;
+	fparams.depth_fx = focal_length * focal_ratio_depth;
+	fparams.depth_fy = focal_length * focal_ratio_depth;
 
-	if (ver == 2)
-		fin >> dwidth >> dheight;
-
-	camparams.focal_x = camparams.focal_y = focal_length;
-	camparams.color_width = cwidth; camparams.color_height = cheight;
-	camparams.depth_width = dwidth; camparams.depth_height = dheight;
-	camparams.snapshot_rate = 2000;
-
-	cout << "Loading cameras..." << endl;
-
-	//		QMessageBox* error_box =new QMessageBox(QString::fromLocal8Bit("Check"),
-	//			QString::fromStdString("%1 " + mesh_name + " %2 %3 %4 %5").arg(num_mesh).arg(camera_count).arg(focal_length).arg(width).arg(height),
-	//						QMessageBox::Critical,
-	//						QMessageBox::Ok, 0, 0);
-	//		int n = error_box->exec(); 
-	//		delete error_box; 
-	//char * meshfile;
-	//meshfile = "mesh.ply";
-	//	vector<Camera*> cameras;
-	//	int ind = 0;
-	vector<string> cam_names(camera_count);
-	for (int i = 0; i < camera_count; ++i)
-		fin >> cam_names[i];
+	vector<string> frame_names(num_frames);
+	for (int i = 0; i < num_frames; ++i)
+		fin >> frame_names[i];
 	fin.close();
+	// >
 
-	for (int i = 0; i < camera_count; ++i) {
-		string camera_name = cam_names[i];
-		cout << "Loading camera #" << i << "..." << endl;
-		QString cam_png = imgpath + "/" + QString::fromStdString(camera_name) + ".png";
-		cout << cam_png.toStdString() << endl;
-		//		while (QFile(QString("%1.txt").arg(ind)).exists()) {
-		Camera* cam = new Camera();
+	QFileInfo file_info(filename);
+	QString scan_name = QFileInfo(filename).baseName(); //QString::fromStdString(scan_name_str);
+	QString data_path = file_info.absolutePath() + "/" + scan_name + "/";
+	QString ply_file = file_info.absolutePath() + "/" + QString::fromStdString(mesh_name_str);
 
-		cam->img.load(cam_png);
+	model = Model::Ptr(new Model());
 
-		ifstream camfin;
-		camfin.open((imgpath.toStdString() + "/" + camera_name + ".txt").c_str());
+	std::cout << "Loading ply..." << endl;
+	if (!openMesh(ply_file, model)) {
+		return false;
+	}
+
+	std::cout << "Loading cameras..." << endl;
+	for (int i = 0; i < num_frames; ++i) {
+		string frame_name = frame_names[i];
+		cout << "Loading frame #" << i << "..." << endl;
+
+		QString frame_txt = data_path + QString::fromStdString(frame_name) + ".txt";
+		QString frame_png = data_path + QString::fromStdString(frame_name) + ".png";
+		QString frame_dpt = data_path + QString::fromStdString(frame_name) + ".dpt";
+		Frame* frame = new Frame();
+
+		// load frame info
+		ifstream frame_fin;
+		frame_fin.open(frame_txt.toStdString());
 		Matrix4f posematrix;
 		float val;
 		for (int j = 0; j < 16; ++j)
 		{
-			camfin >> val;
+			frame_fin >> val;
 			posematrix(j / 4, j % 4) = val;
 		}
-		camfin.close();
-		cam->pose = Affine3f(posematrix);
+		frame_fin.close();
+		frame->pose = Affine3f(posematrix);
+		frame->fparams = fparams;
 
-		// V2 -
-		if (ver == 2) {
-			camfin.open((imgpath.toStdString() + "/" + camera_name + ".dpt").c_str());
-			cam->depth = new unsigned short[dheight*dwidth];
-			cam->depth_processed = false;
-			for (int j = 0; j < dwidth*dheight; ++j) {
-				unsigned short vv;
-				camfin >> cam->depth[j];
-			}
-			//				fin.read((char*)(cam->depth), dwidth*dheight*sizeof(unsigned short));
-			camfin.close();
+		// load frame img
+		frame->img.load(frame_png);
+
+		// load depth
+		ifstream camfin;
+		camfin.open(frame_dpt.toStdString());
+		frame->depth = vector<unsigned short>(dheight*dwidth);
+		frame->depth_processed = false;
+		for (int j = 0; j < dwidth*dheight; ++j) {
+			unsigned short vv;
+			camfin >> frame->depth[j];
 		}
-		// - V2
+		camfin.close();
 
-		cameras.push_back(cam);
+		// add
+		model->addFrame(frame);
 	}
-
 	return true;
-	*/
-	return false;
 }
 
 bool ModelIO::openSCL3(QString filename, Model::Ptr& model) {
