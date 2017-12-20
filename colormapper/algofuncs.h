@@ -12,9 +12,7 @@
 #include <Eigen/Core>
 #include <Eigen/LU>
 
-Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt, CameraParams camparams);
-
-Eigen::Vector2d UfuncTrue(const Eigen::Vector4d& pt, CameraParams camparams);
+Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt, iparams cip, bool check = true);
 
 Eigen::Vector4d Gfunc(const Eigen::Vector4d& p, const Eigen::Matrix4d& Ti);
 
@@ -26,19 +24,16 @@ Eigen::Matrix4d eTrotation(const Eigen::VectorXd& xvec, const Eigen::Matrix4d& T
 
 Eigen::Matrix<double, 4, 6> getJge(const Eigen::Vector4d& point, const Eigen::Matrix4d& Ti, const Eigen::VectorXd xvec);
 
-Eigen::Matrix<double, 2, 4> getJug(const Eigen::Vector4d& g, CameraParams cp);
+Eigen::Matrix<double, 2, 4> getJug(const Eigen::Vector4d& g, iparams cip);
 
 Eigen::Matrix2d getJFu(const Eigen::Vector2d& u, const Eigen::VectorXd& xvec, AlgoParams aparam);
 
 average_color computeColor(QImage* img,float pix_x,float pix_y);
 
-float compute_value(float** img, float x, float y, CameraParams cp);
+float compute_value(float** img, float x, float y, iparams cip);
 
 
 // FROM COLORMAPPER
-bool
-getPointUVCoordinates(const Model::PointXYZ &pt, Eigen::Vector2d &UV_coordinates, CameraParams cp);
-
 bool
 mapUVtoDepth(const Eigen::Vector2f &uv, unsigned short* depth_buffer, CameraParams cp);
 

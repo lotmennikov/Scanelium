@@ -151,6 +151,21 @@ struct colormap_settings {
 	bool increase_model;
 };
 
+struct iparams {
+	float fx;
+	float fy;
+	float cx;
+	float cy;
+	int width;
+	int height;
+
+	iparams(float focal_x = 0, float focal_y = 0, int w = 0, int h = 0) :
+		fx(focal_x), fy(focal_y), cx(((float)w - 1.0f) / 2.0f), cy(((float)h - 1.0f) / 2.0f), width(w), height(h) {}
+};
+
+iparams operator/(const iparams& cp, int val);
+
+
 extern const int cam_res_depth_x[2];
 extern const int cam_res_depth_y[2];
 extern const int cam_res_color_x[3];

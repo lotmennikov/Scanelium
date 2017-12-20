@@ -29,6 +29,7 @@ public:
 	CameraTask task;
 	CameraParams cp;
 	AlgoParams aparam;
+	iparams cip;
 // in algorithm
 	int currentcam;
 	Eigen::Matrix4d* TransM;

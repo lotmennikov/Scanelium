@@ -4,7 +4,6 @@
 #include <thread>
 
 using namespace std;
-using namespace pcl;
 
 //vector<bool> ColorMapper::failCamera;
 AlgoParams ColorMapper::algoparams;
@@ -47,7 +46,7 @@ ColorMapper::~ColorMapper(void) {
 void ColorMapper::init(Model::Ptr model, colormap_settings set) {
 	if (_started) return;
 
-	increase_model = false;
+	//increase_model = false;
 	this->_model = model;
 	this->_col_set = set;
 	this->increase_model = _col_set.increase_model;
@@ -60,20 +59,6 @@ void ColorMapper::setIterations(int it_count) {
 //	if (!started)
 		this->iteration_count = it_count;
 }
-
-//void ColorMapper::setModel(Model::Ptr model) {
-//	if (!_started)
-//		this->_model = model;
-//}
-// could not be changed during execution
-//void ColorMapper::setThreadsNum(int threads) {
-//	if (!_started)
-//		this->camerathreads_num = threads;
-//}
-//void ColorMapper::setDetalisation(bool det) {
-//	if (!_started)
-//		increase_model = det;
-//}
 
 void ColorMapper::start() {
 	if (_started) return;
@@ -152,15 +137,13 @@ void ColorMapper::run() {
 void 
 ColorMapper::increaseVertexCount() {
 	
- // std::vector< pcl::Vertices> polygons;
-
   new_polygons.clear();
   new_polygons.reserve(mesh_triangles->size() * 4);
   new_polygons.resize(mesh_triangles->size ());
 
   copy(mesh_triangles->begin(), mesh_triangles->end(), new_polygons.begin());
 
-  PCL_INFO ("Increasing vertex number....\n");
+  printf("Increasing vertex number....\n");
   float nx, ny, nz;
 
   int newp_ind = mesh_vertices->size();
@@ -281,23 +264,17 @@ ColorMapper::increaseVertexCount() {
 
   newpoints = mesh_vertices->size();
   newtriangles = new_polygons.size();
-
-//  toPCLPointCloud2(*cloud, triangles.cloud);
-//  triangles.polygons = polygons;
 }
 
 void
 ColorMapper::mapColorsZhouKoltun() {
 	cout << "entered mapColorsZhouKoltun\n";
-
-//	bool camera_ratio_diff;
-//	if (640.0 / 480.0 != camparams.color_width / camparams.color_height)
-//		camera_ratio_diff = true;
-//	else 
-//		camera_ratio_diff = false;
+	
 	frame_params fp = _cameras[0]->fparams;
 	float fx_crat = 640.0f / fp.color_width;
 	CameraParams camparams(fp.color_fx*fx_crat, fp.color_fy*fx_crat, fp.color_width, fp.color_height, fp.depth_width, fp.depth_height);
+
+	iparams color_iparams(fp.color_fx, fp.color_fy, fp.color_width, fp.color_height);
 
 	double stepx = (camparams.color_width-1) / (double)(algoparams.gridsizex - 1);
 	double stepy = (camparams.color_height-1) / (double)(algoparams.gridsizey - 1);
@@ -352,17 +329,21 @@ ColorMapper::mapColorsZhouKoltun() {
 	int down = 1;
 	vector<CameraParams> camparams_lvl;
 	vector<AlgoParams> algoparams_lvl;
+	vector<iparams> cip_lvl;
 
 	for (int level = 0; level < num_levels; ++level) {
 		vector<float**> bwim, schxim, schyim;
 		CameraParams cp = camparams;
 		AlgoParams ap = algoparams;
+		iparams cip = color_iparams;
 		
 		cp.color_width/=down;
 		cp.color_height/=down;
 
 		ap.stepx = (cp.color_width -1) / (double)(algoparams.gridsizex - 1);
 		ap.stepy = (cp.color_height-1) / (double)(algoparams.gridsizey - 1);
+
+		cip = cip / down;
 
 		for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 		{
@@ -390,9 +371,10 @@ ColorMapper::mapColorsZhouKoltun() {
 		scharry_images.push_back(schyim);
 		camparams_lvl.push_back(cp);
 		algoparams_lvl.push_back(ap);
+		cip_lvl.push_back(cip);
 		down <<=1;
 	}	
-	int current_lvl = 0;
+	current_lvl = 0;
 
 // * подготовка многопоточия
 	for (int i = 0; i < camerathreads_num; ++i) {
@@ -402,65 +384,10 @@ ColorMapper::mapColorsZhouKoltun() {
 		connect(thread, &CameraThread::error, this, &ColorMapper::cameraTaskError);
 		camera_threads.push_back(thread);
 	}
+
 // *********** многопоточие
-
-	camerathread_mutex.lock();
-		
-	while (!free_threads.empty()) 
-		free_threads.pop();
-	for (int i = 0; i < camerathreads_num; ++i)
-		free_threads.push(i);
-		
-	camerathread_mutex.unlock();
-	try {
-		int currentcam = 0;
-		processed_count = 0;
-		// == И вот тут будем строить алгоритм
-		while (currentcam < camera_count) {
-
-				camerathread_mutex.lock();
-				if (!free_threads.empty()) {
-					CameraThread* thread = camera_threads[free_threads.front()];
-					free_threads.pop();
-
-					thread->task = CameraTask::PREPROCESS;
-					thread->cp = camparams_lvl[current_lvl];
-					thread->aparam = algoparams_lvl[current_lvl];
-					thread->mesh_triangles = mesh_triangles;
-					thread->mesh_vertices = mesh_vertices;
-					thread->camera_point_inds = camera_point_inds[currentcam];
-					thread->TransM = TransM[currentcam];
-					thread->bw = bw_images[current_lvl][currentcam];
-					thread->cam = _cameras[currentcam];
-
-					thread->currentcam = currentcam;
-
-					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
-				
-					emit message(QString::fromLocal8Bit("Preprocessing %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
-
-					currentcam++;
-				
-					thread->start();				
-				}
-				camerathread_mutex.unlock();
-
-				Sleep(10);
-				if (_stop) return;
-		}
-
-		//waiting...
-		while (processed_count < camera_count) {
-			Sleep(10);
-			if (_stop) return;
-		}
-	} catch (...) {
-		cout << "Exception in ColorMapper" << endl;
-		hardStop();
-		emit error("Colormap", "Unexpected Error in ColorMapper: PreProcessCamera");
-		return;
-	}
-
+	multithread(PREPROCESS, algoparams_lvl[current_lvl], cip_lvl[current_lvl], camparams_lvl[current_lvl]);
+	if (_stop) return;
 // *********** конец многопоточия
 
 	printf("camera_points:\n");
@@ -481,7 +408,7 @@ ColorMapper::mapColorsZhouKoltun() {
 	
 	double lambda = 10.0f;// 0.5f*algoparams.stepx;
 	
-	vector<Eigen::VectorXd*> x(camera_count); 
+	x.resize(camera_count); 
 	
 	bigIdentity = new Eigen::SparseMatrix<double>(algoparams.matrixdim, algoparams.matrixdim);
 	bigIdentity->reserve(Eigen::VectorXi::Constant(algoparams.matrixdim,1));
@@ -500,7 +427,8 @@ ColorMapper::mapColorsZhouKoltun() {
 	cout << "Pyramid level: " << current_lvl << endl;
 
 	cout << "iterations count " << iteration_count << endl;
-	for (int iteration = 0; iteration < iteration_count; ++iteration) {
+	
+	for (iteration = 0; iteration < iteration_count; ++iteration) {
 		printf("**** Iteration #%d ****\n\n", iteration);
 		if (_stop) return;
 		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
@@ -534,217 +462,18 @@ ColorMapper::mapColorsZhouKoltun() {
 		if (resid_lower > 2) break;
 	
 		emit refreshResidualError(initialError, PrevResid);
-
-//		vector<VectorXd*> dx;
-// solution to the linear system ()
-// * not multithreading
-/*		for (int currentcam = 0; currentcam < camera_count; ++currentcam) {
-
-			try {
-				emit colorMapperMessage(QString("Iteration %1 - Camera %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
-
-
-				Eigen::VectorXd res = VectorXd::Zero(camera_point_inds[currentcam]->size());            // residuals
 		
-				Eigen::SparseMatrix<double> JrTs(ColorMapper::matrixdim, camera_point_inds[currentcam]->size());
-				JrTs.reserve(VectorXi::Constant(camera_point_inds[currentcam]->size(), ColorMapper::dof6 + 8));
-		//		ident_mutex.unlock();
-
-				Matrix<double, 1, 2> Gru;                             // Scharr gradient(u)
-				Matrix<double, 2, 2> JFu;
-				Matrix<double, 2, 4> Jug;                             // Jacobian u(g)
-				Matrix<double, 4, 6> Jge;                             // Jacobian g(e) (e == dx)
-
-				vector<point_bw>::iterator it = camera_point_inds[currentcam]->begin();
-				for (int ipoint = 0; it != camera_point_inds[currentcam]->end(); ++ipoint, it++) {
-					Eigen::Vector4d pnt;
-					pnt(0) = mesh_cloud->points[(*it).index].x;
-					pnt(1) = mesh_cloud->points[(*it).index].y;
-					pnt(2) = mesh_cloud->points[(*it).index].z;
-					pnt(3) = 1;
-
-			// * compute r
-					int indexp = (*it).index;
-
-					if ((*it).bw >= 0) {
-						res(ipoint) = comp_bw[indexp].bw - (*it).bw;
-				
-		
-			// * compute Jge  \/ g(e(al, be, ga, a, b, c))
-						Jge = getJge(pnt, *TransM[currentcam], *x[currentcam]) ;
-	
-			// * compute Jug  \/
-						Eigen::Vector4d initG = Gfunc(pnt, eTrotation(*x[currentcam], *TransM[currentcam]));
-						Jug = getJug(initG);
-
-			// * compute JFu  \/
-						Eigen::Vector2d initU = Ufunc(initG);
-
-						JFu = getJFu(initU, *x[currentcam]);
-					
-			// * compute Gru  \/
-						Eigen::Vector2d initF = Ffunc(initU, *x[currentcam]);
-
-						double step = 1;
-						if (initF(0) >= 0 && initF(1) >= 0) {
-							Gru(0, 0) = -compute_value(scharrx_images[currentcam], initF(0), initF(1));
-							Gru(0, 1) = -compute_value(scharry_images[currentcam], initF(0), initF(1));
-						} else {
-							Gru(0,0) = Gru(0,1) = 0;
-							res(ipoint) = 0;
-						}
-			// * compute Jr   \/
-						MatrixXd row6 = - ((((Gru)*JFu) * Jug) * Jge);			
-						for (int i = 0; i < dof6; ++i) JrTs.insert(i, ipoint) = row6(0, i);						
-
-			// * compute F part
-						int indf = floor(initU(0) / stepx + eps) + floor(initU(1) / stepy + eps)*gridsizex;
-						double 
-						fi = Fi(initU,   indf);
-						JrTs.insert(dof6 +indf*2, ipoint)   = -fi * Gru(0, 0);  // left up
-						JrTs.insert(dof6 +indf*2+1, ipoint) = -fi * Gru(0, 1); 
-						if (indf%gridsizex + 1 < gridsizex) {
-							fi = Fi(initU,    indf+1);
-							JrTs.insert(dof6 +(indf+1)*2  , ipoint) = -fi * Gru(0, 0); // right up
-							JrTs.insert(dof6 +(indf+1)*2+1, ipoint) = -fi * Gru(0, 1); 
-						}
-						if (indf/gridsizex + 1 < gridsizey) {
-							fi = Fi(initU,    indf+gridsizex);
-							JrTs.insert(dof6 +(indf+gridsizex)*2  ,ipoint) = -fi * Gru(0, 0); // left down
-							JrTs.insert(dof6 +(indf+gridsizex)*2+1,ipoint) = -fi * Gru(0, 1); 
-							if (indf%gridsizex + 1 < gridsizex) {
-								fi = Fi(initU,    indf+gridsizex+1);
-								JrTs.insert(dof6 +(indf+gridsizex+1)*2  ,ipoint) = -fi * Gru(0, 0); // right down
-								JrTs.insert(dof6 +(indf+gridsizex+1)*2+1,ipoint) = -fi * Gru(0, 1); 
-							}
-						} 
-					} else res(ipoint) = 0;
-			// * final Jr Row
-				}
-
-				cout  << " solve matrices" << endl; 
-
-			// * compute JrT  \/
-			// *              \/
-			// * solve (JrT*Jr)*dx = (-JrT*r)
-
-				cout << "matrix A" << endl;
-
-				SparseMatrix<double> A = JrTs*JrTs.transpose();
-				A = A + (*bigIdentity);
-
-				cout << "matrix B" << endl;
-				MatrixXd B = -JrTs*res;		
-			
-				cout << "cholesky" << endl;
-				Eigen::SimplicialCholesky< SparseMatrix<double> > chol(A);
-				cout << "solving" << endl;
-			// * Finally solve the system
-				dx[currentcam] = new VectorXd(chol.solve(B));
-		
-				cout << currentcam << ' ';
-			} catch (const std::exception& ex) {
-				cout << "Camera "<< currentcam << " exception " << ex.what() << endl;
-				dx[currentcam] = new VectorXd(VectorXd::Zero(matrixdim));
-			} catch (const std::string& ex) {
-				cout << "Camera "<< currentcam << " exception " << ex << endl;
-				dx[currentcam] = new VectorXd(VectorXd::Zero(matrixdim));
-			} catch (...) {
-				cout << "Camera "<< currentcam << " exception" << endl;;
-				dx[currentcam] = new VectorXd(VectorXd::Zero(matrixdim));
-				//throw "Exception in thread!";
-			}
-		}
-
-
-
-		*/
-		
-// *  MULTITHREADING		
-		camerathread_mutex.lock();
-		
-		while (!free_threads.empty()) 
-			free_threads.pop();
-		for (int i = 0; i < camerathreads_num; ++i)
-			free_threads.push(i);
-		
-		camerathread_mutex.unlock();
-		try {
-			int currentcam = 0;
-			processed_count = 0;
-			// == И вот тут будем строить алгоритм
-			while (currentcam < camera_count) {
-
-					camerathread_mutex.lock();
-					if (!free_threads.empty()) {
-						CameraThread* thread = camera_threads[free_threads.front()];
-						free_threads.pop();
-
-						thread->task = CameraTask::ALGORITHM;
-						thread->cp = camparams_lvl[current_lvl];
-						thread->aparam = algoparams_lvl[current_lvl];
-						thread->mesh_vertices = mesh_vertices;
-						thread->scharrx = scharrx_images[current_lvl][currentcam];
-						thread->scharry = scharry_images[current_lvl][currentcam];
-						thread->bw = bw_images[current_lvl][currentcam];
-						thread->x = x[currentcam];
-						thread->TransM = TransM[currentcam];
-						thread->camera_point_inds = camera_point_inds[currentcam];
-
-						thread->currentcam = currentcam;
-
-						cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
-				
-
-						emit message(QString::fromLocal8Bit("Iteration %1 - Image %2").arg(iteration+1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
-						
-						currentcam++;
-				
-						thread->start();				
-					}
-					camerathread_mutex.unlock();
-
-					Sleep(10);
-					if (_stop) return;
-			}
-
-			//waiting...
-			while (processed_count < camera_count) {
-				Sleep(10);
-				if (_stop) return;
-			}
-		} catch (...) {
-			cout << "Exception in ColorMapper" << endl;
-			hardStop();
-			emit error("Colormapper", "Unexpected Error in ColorMapper");
-			return;
-		}
+// *  MULTITHREADING	
+		multithread(CameraTask::ALGORITHM, algoparams_lvl[current_lvl], cip_lvl[current_lvl], camparams_lvl[current_lvl]);
+		if (_stop) return;
 // * END MULTITHREADING
 
 		cout << endl;
 		// Compute C(p) again
 		for (int ip = 0; ip < comp_bw.size(); ++ip) comp_bw[ip].clear();
 		for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
-		/*		*x[currentcam] += *dx[currentcam];
-				Matrix4d transf = eTrotation(*x[currentcam], *TransM[currentcam]);*/
 				auto it = camera_point_inds[currentcam]->begin();
 				for (;it != camera_point_inds[currentcam]->end(); it++) {
-				/*	Vector4d pnt;
-					pnt(0) = mesh_cloud->points[(*it).index].x;
-					pnt(1) = mesh_cloud->points[(*it).index].y;
-					pnt(2) = mesh_cloud->points[(*it).index].z;
-					pnt(3) = 1;
-
-					Vector4d initG = Gfunc(pnt, transf);
-					Vector2d initU = Ufunc(initG);
-					Vector2d initF = Ffunc(initU, *x[currentcam]);
-					if (initF(0) < 0 || initF(1) < 0 || 
-						initF(0) > camparams.color_width - 1 || initF(1) > camparams.color_height - 1)  {
-					//	cout << "Bad coordinates : " << initU << endl;
-						(*it).bw = -1;
-					//	system("pause");
-					} else {
-						float val = compute_value(bw_images[currentcam], initF(0), initF(1));*/
 					if ((*it).bw != -1) {
 						comp_bw[it->index].addBW(it->bw);
 					//	(*it).bw =  val;
@@ -801,32 +530,6 @@ ColorMapper::mapColorsZhouKoltun() {
 
 	optimizedError = sqrt(E / (double)cnt_e);
 	
-	
-	/*
-// * final colors *
-	std::vector<average_color> avgcolors(mesh_cloud->points.size());
-	for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
-			Matrix4d transf = eTrotation(*x[currentcam], *TransM[currentcam]);
-			vector<point_bw>::iterator it = camera_point_inds[currentcam]->begin();
-			for (;it != camera_point_inds[currentcam]->end(); it++) {
-				Vector4d pnt;
-				pnt(0) = mesh_cloud->points[(*it).index].x;
-				pnt(1) = mesh_cloud->points[(*it).index].y;
-				pnt(2) = mesh_cloud->points[(*it).index].z;
-				pnt(3) = 1;
-
-				Vector4d initG = Gfunc(pnt, transf);
-				Vector2d initU = Ufunc(initG);
-				Vector2d initF = Ffunc(initU, *x[currentcam]);
-				// если не вылезает
-				if (!(initF(0) < 0 || initF(1) < 0 || 
-					  initF(0) > camparams.color_width - 1 || initF(1) > camparams.color_height - 1))  {
-					average_color clr = computeColor(&cameras[currentcam]->img, initF(0), initF(1));
-					avgcolors[(*it).index].addRGBFunc(clr.r, clr.g, clr.b, it->weight);
-				}		
-			}
-	} */
-
 // увеличение количества вершин и полигонов
 	oldpoints = mesh_vertices->size();
 	oldtriangles = mesh_vertices->size();
@@ -851,63 +554,8 @@ ColorMapper::mapColorsZhouKoltun() {
 	
 // * многопоточие:
 // *  MULTITHREADING		
-
-	camerathread_mutex.lock();
-		
-	while (!free_threads.empty()) 
-		free_threads.pop();
-	for (int i = 0; i < camerathreads_num; ++i)
-		free_threads.push(i);
-		
-	camerathread_mutex.unlock();
-	try {
-		int currentcam = 0;
-		processed_count = 0;
-		// == И вот тут будем строить алгоритм
-		while (currentcam < camera_count) {
-
-				camerathread_mutex.lock();
-				if (!free_threads.empty()) {
-					CameraThread* thread = camera_threads[free_threads.front()];
-					free_threads.pop();
-
-					thread->task = CameraTask::POSTPROCESS;
-					thread->cp = camparams;
-					thread->aparam = algoparams;
-					thread->mesh_triangles = mesh_triangles;
-					thread->mesh_vertices = mesh_vertices;
-					thread->x = x[currentcam];
-					thread->TransM = TransM[currentcam];
-					thread->cam = _cameras[currentcam];
-					thread->processing_points_size = oldpoints;
-					thread->edge_points = &edge_points;
-					thread->currentcam = currentcam;
-
-					cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
-				
-					emit message(QString::fromLocal8Bit("Postprocessing %1/%2").arg(currentcam+1).arg(camera_count), (int)((100.0f*(float)currentcam)/camera_count));
-
-					currentcam++;
-				
-					thread->start();				
-				}
-				camerathread_mutex.unlock();
-
-				Sleep(10);
-				if (_stop) return;
-		}
-
-		//waiting...
-		while (processed_count < camera_count) {
-			Sleep(10);
-			if (_stop) return;
-		}
-	} catch (...) {
-		cout << "Exception in ColorMapper" << endl;
-		hardStop();
-		emit error("Colormapper", "Unexpected Error in ColorMapper: PostProcessCamera");
-		return;
-	}
+	multithread(CameraTask::POSTPROCESS, algoparams, color_iparams, camparams);
+	if (_stop) return;
 // * END MULTITHREADING
 	/*
 	ofstream fout;
@@ -917,11 +565,6 @@ ColorMapper::mapColorsZhouKoltun() {
 	}
 	fout.close();*/
 // * конец многопоточия
-	
-//	for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
-//
-//		postProcessCamera(currentcam, *x[currentcam]);
-//	}
 
 	for (int i = 0; i < point_color.size(); ++i) {
 		if (avgcolors[i].count == 0) {
@@ -986,6 +629,97 @@ ColorMapper::mapColorsZhouKoltun() {
 	_started = false;
 
 }// 'end ZhouKoltun
+
+
+void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, CameraParams cp) {
+	camerathread_mutex.lock();
+
+	while (!free_threads.empty())
+		free_threads.pop();
+	for (int i = 0; i < camerathreads_num; ++i)
+		free_threads.push(i);
+
+	camerathread_mutex.unlock();
+	try {
+		int currentcam = 0;
+		processed_count = 0;
+
+		// Process all cameras
+		while (currentcam < camera_count) {
+
+			camerathread_mutex.lock();
+			if (!free_threads.empty()) {
+				CameraThread* thread = camera_threads[free_threads.front()];
+				free_threads.pop();
+
+				thread->task = task;
+				thread->cp = cp;
+				thread->aparam = ap;
+				thread->cip = cip;
+				thread->cam = _cameras[currentcam];
+				thread->TransM = TransM[currentcam];
+				thread->currentcam = currentcam;
+
+				if (task == PREPROCESS) {
+					thread->mesh_vertices = mesh_vertices;
+					thread->mesh_triangles = mesh_triangles;
+					thread->camera_point_inds = camera_point_inds[currentcam];
+					thread->bw = bw_images[current_lvl][currentcam];
+					thread->cam = _cameras[currentcam];
+				}
+				if (task == ALGORITHM) {
+					thread->mesh_vertices = mesh_vertices;
+					thread->scharrx = scharrx_images[current_lvl][currentcam];
+					thread->scharry = scharry_images[current_lvl][currentcam];
+					thread->bw = bw_images[current_lvl][currentcam];
+					thread->camera_point_inds = camera_point_inds[currentcam];
+					thread->x = x[currentcam];
+				}
+				if (task == POSTPROCESS) {
+					thread->mesh_vertices = mesh_vertices;
+					thread->mesh_triangles = mesh_triangles;
+					thread->x = x[currentcam];
+					thread->processing_points_size = oldpoints;
+					thread->edge_points = &edge_points;
+				}
+
+				cout << "Thread " << thread->threadId << " is processing camera " << currentcam << endl;
+
+				switch (task) {
+				case PREPROCESS:
+					emit message(QString::fromLocal8Bit("Preprocessing %1/%2").arg(currentcam + 1).arg(camera_count), (int)((100.0f*(float)currentcam) / camera_count));
+					break;
+				case ALGORITHM:
+					emit message(QString::fromLocal8Bit("Iteration %1 - Image %2").arg(iteration + 1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
+					break;
+				case POSTPROCESS:
+					emit message(QString::fromLocal8Bit("Postprocessing %1/%2").arg(currentcam + 1).arg(camera_count), (int)((100.0f*(float)currentcam) / camera_count));
+					break;
+				}
+
+				currentcam++;
+
+				thread->start();
+			}
+			camerathread_mutex.unlock();
+
+			Sleep(10);
+			if (_stop) return;
+		}
+
+		//waiting...
+		while (processed_count < camera_count) {
+			Sleep(10);
+			if (_stop) return;
+		}
+	}
+	catch (...) {
+		cout << "Exception in ColorMapper" << endl;
+		hardStop();
+		emit error("Colormapper", "Unexpected Error in ColorMapper: PostProcessCamera");
+		return;
+	}
+}
 
 void 
 ColorMapper::cameraTaskFinished(int camera, int thread, bool success) {

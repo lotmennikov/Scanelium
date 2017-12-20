@@ -11,9 +11,6 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
-#include <pcl/common/transforms.h>
-#include <pcl/kdtree/kdtree_flann.h>
-
 #include "frame.h"
 #include "structs.h"
 #include "camerathread.h"
@@ -54,6 +51,9 @@ private:
 	int iteration_count;
 	bool increase_model; // new
 	int camerathreads_num;
+	int current_lvl;
+	int iteration;
+	std::vector<Eigen::VectorXd*> x;
 
 	void 
 	increaseVertexCount();
@@ -73,11 +73,8 @@ private:
 
 	void run();
 	void cancelThreads();
-//	void 
-//	processCamera(int currentcam);
 
-//	void 
-//	postProcessCamera(int currentcam, const Eigen::VectorXd& x);
+	void multithread(CameraTask task, AlgoParams ap, iparams cip, CameraParams cp);
 
 public:
 	

@@ -3,7 +3,8 @@
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <pcl/PolygonMesh.h>
+#include <pcl/common/transforms.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 QMutex CameraThread::ident_mutex;
 
@@ -73,20 +74,20 @@ void CameraThread::computedx() {
 	
 	// * compute Jug  \/
 				Eigen::Vector4d initG = Gfunc(pnt, eTrotation(*x, *TransM));
-				Jug = getJug(initG, cp);
+				Jug = getJug(initG, cip);
 
 	// * compute JFu  \/
-				Eigen::Vector2d initU = Ufunc(initG,cp);
+				Eigen::Vector2d initU = Ufunc(initG, cip); // checked projection
 
-				JFu = getJFu(initU, *x, aparam);
+				JFu = getJFu(initU, *x, aparam); // 0 if bad projection
 					
 	// * compute Gru  \/
-				Eigen::Vector2d initF = Ffunc(initU, *x, aparam);
+				Eigen::Vector2d initF = Ffunc(initU, *x, aparam); // nan if bad projection
 
 				double step = 1;
 				if (initF(0) >= 0 && initF(1) >= 0) {
-					Gru(0, 0) = -compute_value(scharrx, initF(0), initF(1), cp);
-					Gru(0, 1) = -compute_value(scharry, initF(0), initF(1), cp);
+					Gru(0, 0) = -compute_value(scharrx, initF(0), initF(1), cip);
+					Gru(0, 1) = -compute_value(scharry, initF(0), initF(1), cip);
 				} else {
 					Gru(0,0) = Gru(0,1) = 0;
 					res(ipoint) = 0;
@@ -96,26 +97,28 @@ void CameraThread::computedx() {
 				for (int i = 0; i < dof6; ++i) JrTs.coeffRef(i, ipoint) = row6(0, i);						
 
 	// * compute F part
-				int indf = floor(initU(0) / aparam.stepx + eps) + floor(initU(1) / aparam.stepy + eps)*aparam.gridsizex;
-				double 
-				fi = Fi(initU, indf, aparam);
-				JrTs.coeffRef(dof6 +indf*2, ipoint)   = -fi * Gru(0, 0);  // left up
-				JrTs.coeffRef(dof6 +indf*2+1, ipoint) = -fi * Gru(0, 1); 
-				if (indf%aparam.gridsizex + 1 < aparam.gridsizex) {
-					fi = Fi(initU,    indf+1, aparam);
-					JrTs.coeffRef(dof6 +(indf+1)*2  , ipoint) = -fi * Gru(0, 0); // right up
-					JrTs.coeffRef(dof6 +(indf+1)*2+1, ipoint) = -fi * Gru(0, 1); 
-				}
-				if (indf/aparam.gridsizex + 1 < aparam.gridsizey) {
-					fi = Fi(initU,    indf+aparam.gridsizex, aparam);
-					JrTs.coeffRef(dof6 +(indf+aparam.gridsizex)*2  ,ipoint) = -fi * Gru(0, 0); // left down
-					JrTs.coeffRef(dof6 +(indf+aparam.gridsizex)*2+1,ipoint) = -fi * Gru(0, 1); 
+				if (!isnan(initU.x())) { // only of projection is valid
+					int indf = floor(initU(0) / aparam.stepx + eps) + floor(initU(1) / aparam.stepy + eps)*aparam.gridsizex;
+					double
+						fi = Fi(initU, indf, aparam);
+					JrTs.coeffRef(dof6 + indf * 2, ipoint) = -fi * Gru(0, 0);  // left up
+					JrTs.coeffRef(dof6 + indf * 2 + 1, ipoint) = -fi * Gru(0, 1);
 					if (indf%aparam.gridsizex + 1 < aparam.gridsizex) {
-						fi = Fi(initU,    indf+aparam.gridsizex+1, aparam);
-						JrTs.coeffRef(dof6 +(indf+aparam.gridsizex+1)*2  ,ipoint) = -fi * Gru(0, 0); // right down
-						JrTs.coeffRef(dof6 +(indf+aparam.gridsizex+1)*2+1,ipoint) = -fi * Gru(0, 1); 
+						fi = Fi(initU, indf + 1, aparam);
+						JrTs.coeffRef(dof6 + (indf + 1) * 2, ipoint) = -fi * Gru(0, 0); // right up
+						JrTs.coeffRef(dof6 + (indf + 1) * 2 + 1, ipoint) = -fi * Gru(0, 1);
 					}
-				} 
+					if (indf / aparam.gridsizex + 1 < aparam.gridsizey) {
+						fi = Fi(initU, indf + aparam.gridsizex, aparam);
+						JrTs.coeffRef(dof6 + (indf + aparam.gridsizex) * 2, ipoint) = -fi * Gru(0, 0); // left down
+						JrTs.coeffRef(dof6 + (indf + aparam.gridsizex) * 2 + 1, ipoint) = -fi * Gru(0, 1);
+						if (indf%aparam.gridsizex + 1 < aparam.gridsizex) {
+							fi = Fi(initU, indf + aparam.gridsizex + 1, aparam);
+							JrTs.coeffRef(dof6 + (indf + aparam.gridsizex + 1) * 2, ipoint) = -fi * Gru(0, 0); // right down
+							JrTs.coeffRef(dof6 + (indf + aparam.gridsizex + 1) * 2 + 1, ipoint) = -fi * Gru(0, 1);
+						}
+					}
+				}
 			} else res(ipoint) = 0;
 	// * final Jr Row
 		}
@@ -155,15 +158,14 @@ void CameraThread::computedx() {
 			pnt(3) = 1;
 
 			Vector4d initG = Gfunc(pnt, transf);
-			Vector2d initU = Ufunc(initG, cp);
+			Vector2d initU = Ufunc(initG, cip);
 			Vector2d initF = Ffunc(initU, *x, aparam);
-			if (initF(0) < 0 || initF(1) < 0 || 
-				initF(0) > cp.color_width - 1 || initF(1) > cp.color_height - 1)  {
-					//	cout << "Bad coordinates : " << initU << endl;
+			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1)  {
+				it->bw = compute_value(bw, initF(0), initF(1), cip);
+			} else {
+				//	cout << "Bad coordinates : " << initU << endl;
 				it->bw = -1;
-			//	system("pause");
-			} else { 
-				it->bw =  compute_value(bw, initF(0), initF(1), cp);
+				//	system("pause");
 			}		
 		}
 
@@ -210,7 +212,7 @@ inline void kdtree_visibility_check(pcl::PointCloud<pcl::PointXY>::Ptr projectio
 	// removing completely unseen faces
 	int cpt_invisible = 0;
 	auto it = mesh_triangles->begin();
-	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
+	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
 	{
 		if (projections->points[it->p[0]].x >= 0.0 &&
 			projections->points[it->p[1]].x >= 0.0 &&
@@ -289,7 +291,6 @@ inline void kdtree_visibility_check(pcl::PointCloud<pcl::PointXY>::Ptr projectio
 	// end' occluding
 }
 
-
 void CameraThread::postProcessCamera() {
 
 	// transform mesh into camera's frame
@@ -317,18 +318,16 @@ void CameraThread::postProcessCamera() {
 			pnt(3) = 1;
 
 			Vector4d initG = Gfunc(pnt, transf);
-			Vector2d initU = Ufunc(initG, cp);
+			Vector2d initU = Ufunc(initG, cip);
 			Vector2d initF = Ffunc(initU, *x, aparam);
 
 			camera_z[ind] = initG(2);
 
-			if (initF(0) < 0 && initF(1) < 0 &&
-				initF(0) > cp.color_width - 1 && initF(1) > cp.color_height - 1) {
-				(*ip) = nan_point;
-			}
-			else {
+			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1) {
 				ip->x = initF(0);
 				ip->y = initF(1);
+			} else {
+				(*ip) = nan_point;
 			}
 		}
 
@@ -357,17 +356,17 @@ void CameraThread::postProcessCamera() {
 				pnt(3) = 1;
 
 				Vector4d initG = Gfunc(pnt, transf);
-				Vector2d initU = Ufunc(initG, cp);
+				Vector2d initU = Ufunc(initG, cip);
 				Vector2d initF = Ffunc(initU, *x, aparam);
 
-				if (initF(0) < 0 && initF(1) < 0 &&
-					initF(0) > cp.color_width-1 && initF(1) > cp.color_height-1) {
-						(*ip) = nan_point;
-				} else {
+				if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1) {
 					ip->x = initF(0);
 					ip->y = initF(1);
 				}
-			} else (*ip) = nan_point; 
+				else {
+					(*ip) = nan_point;
+				}
+			} else (*ip) = nan_point;
 		}
 	}
 // projections size expanded
@@ -410,9 +409,13 @@ void CameraThread::preProcessCamera() {
 	pcl::PointCloud<pcl::PointXY>::Ptr projections (new pcl::PointCloud<pcl::PointXY>);
 	projections->points.resize(mesh_vertices->size());
 
-	float width = cp.color_width;
-	float height = cp.color_height;
-	
+	float width = cip.width;
+	float height = cip.height;
+
+	pcl::PointXY nan_point;
+	nan_point.x = -1.0;
+	nan_point.y = -1.0;
+
 	{
 		// transform mesh into camera's frame
 		//pcl::PointCloud<PointXYZ>::Ptr camera_cloud (new pcl::PointCloud<PointXYZ>);
@@ -426,13 +429,17 @@ void CameraThread::preProcessCamera() {
 		int ind = 0;
 		for (auto it_m = mesh_vertices->begin(); it_m != mesh_vertices->end(); ++it_m, ++ind) {
 			Vector3f p(it_m->x, it_m->y, it_m->z);
-			Vector3f p_cam = cam_pose_inv*p;
-			
-			Model::PointXYZ p_cam_xyz = Model::PointXYZ(p_cam.x(), p_cam.y(), p_cam.z(), 1.0f);
+			Vector3f p_cam1 = cam_pose_inv*p;
+			Vector4d p_cam = Vector4d(p_cam1(0), p_cam1(1), p_cam1(2), 1.0);
 			camera_z[ind] = p_cam.z();
 
-			getPointUVCoordinates(p_cam_xyz, proj, cp);
-			projections->points[ind].x = proj.x(); projections->points[ind].y = proj.y();
+			proj = Ufunc(p_cam, cip);
+			if (isnan(proj.x()))
+				projections->points[ind] = nan_point;
+			else {
+				projections->points[ind].x = proj.x(); 
+				projections->points[ind].y = proj.y();
+			}
 		}
 	   
 		kdtree_visibility_check(projections, mesh_triangles, camera_z);
@@ -466,7 +473,7 @@ void CameraThread::preProcessCamera() {
 			
 			float weight = (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen());
 			if (weight > 0.1) {
-				float val = compute_value(bw, uv_coord1.x, uv_coord1.y, cp);
+				float val = compute_value(bw, uv_coord1.x, uv_coord1.y, cip);
 				ColorMapper::comp_bw[i].addBW(val);
 
 				temp_points.push_back(point_bw(i, val, weight));
