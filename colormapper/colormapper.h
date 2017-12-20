@@ -113,43 +113,6 @@ public:
 	std::vector<std::vector<float**> > scharry_images;
 
 	std::vector<std::vector<point_bw>*> camera_point_inds;
-
-	static bool
-	mapUVtoDepth(const pcl::PointXY &uv, unsigned short* depth_buffer, CameraParams cp);
-
-	// find depth discontinueties on bw depth map
-	void 
-	computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams);
-
-	static bool
-	checkPointInsideTriangle (const pcl::PointXY &p1, const pcl::PointXY &p2, const pcl::PointXY &p3, const pcl::PointXY &pt);
-
-	static void 
-	getTriangleCircumcscribedCircleCentroid ( const pcl::PointXY &p1, const pcl::PointXY &p2, const pcl::PointXY &p3, pcl::PointXY &circumcenter, double &radius);
-
-//	static 
-//	Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt);
-//	static
-//	Eigen::Vector2d UfuncTrue(const Eigen::Vector4d& pt);
-//	static 
-//	Eigen::Vector4d Gfunc(const Eigen::Vector4d& p, const Eigen::Matrix4d& Ti);
-//	static 
-//	Eigen::Vector2d Ffunc(const Eigen::Vector2d& u, const Eigen::VectorXd& xvec);
-//	static
-//	double Fi(const Eigen::Vector2d& u, int indf);
-//	static 
-//	Eigen::Matrix4d eTrotation(const Eigen::VectorXd& xvec, const Eigen::Matrix4d& Ti, int add = -1, double step = 0);
-/*
-	inline 
-	Eigen::Matrix<double, 4, 6> getJge(const Eigen::Vector4d& point, const Eigen::Matrix4d& Ti, const Eigen::VectorXd xvec);
-
-	inline 
-	Eigen::Matrix<double, 2, 4> getJug(const Eigen::Vector4d& g);
-
-	inline 
-	Eigen::Matrix2d getJFu(const Eigen::Vector2d& u, const Eigen::VectorXd& xvec);
-*/	
-
 public:
 
 	ColorMapper(QObject* parent = 0);

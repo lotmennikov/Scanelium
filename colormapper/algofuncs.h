@@ -39,4 +39,15 @@ float compute_value(float** img, float x, float y, CameraParams cp);
 bool
 getPointUVCoordinates(const Model::PointXYZ &pt, Eigen::Vector2d &UV_coordinates, CameraParams cp);
 
+bool
+mapUVtoDepth(const Eigen::Vector2f &uv, unsigned short* depth_buffer, CameraParams cp);
+
+void
+computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams);
+
+void
+getTriangleCircumcscribedCircleCentroid(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, Eigen::Vector2f &circumcenter, double &radius);
+
+bool
+checkPointInsideTriangle(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, const Eigen::Vector2f &pt);
 #endif

@@ -189,50 +189,26 @@ void CameraThread::computedx() {
 	}
 }
 
-void CameraThread::postProcessCamera() {
+inline Eigen::Vector2f p2_to_v2e(const pcl::PointXY& p) {
+	return Eigen::Vector2f(p.x, p.y);
+}
 
-// transform mesh into camera's frame
-	vector<float> camera_z(mesh_vertices->size()); // new size
-	    
+inline pcl::PointXY v2e_to_p2(const Eigen::Vector2f& v) {
+	pcl::PointXY p; p.x = v.x(); p.y = v.y();
+	return p;
+}
+
+// TODO replace with simple OpenGL rendering
+inline void kdtree_visibility_check(pcl::PointCloud<pcl::PointXY>::Ptr projections, std::vector<Model::Triangle>* mesh_triangles, const vector<float>& camera_z) {
 	std::vector<bool> visibility;
-	visibility.resize (mesh_triangles->size ());
-
-	pcl::PointCloud<pcl::PointXY>::Ptr projections (new pcl::PointCloud<pcl::PointXY>);
-	projections->points.resize(processing_points_size); // old size //cloud->points.size()); 
+	visibility.resize(mesh_triangles->size());
 
 	pcl::PointXY nan_point;
-	nan_point.x = -1.0; 
-	nan_point.y = -1.0; 
+	nan_point.x = -1.0;
+	nan_point.y = -1.0;
 
-	Matrix4d transf = eTrotation(*x, *TransM);
-
-	auto itp = mesh_vertices->begin();
-	auto ip = projections->points.begin();
-	for (int ind = 0; ind < processing_points_size; ++ip, ++itp, ++ind) { // itp != cloud->points.end()
-
-		Vector4d pnt;
-		pnt(0) = itp->x;
-		pnt(1) = itp->y;
-		pnt(2) = itp->z;
-		pnt(3) = 1;
-
-		Vector4d initG = Gfunc(pnt, transf);
-		Vector2d initU = Ufunc(initG, cp);
-		Vector2d initF = Ffunc(initU, *x, aparam);
-
-		camera_z[ind] = initG(2);
-
-		if (initF(0) < 0 && initF(1) < 0 &&
-			initF(0) > cp.color_width-1 && initF(1) > cp.color_height-1) {
-				(*ip) = nan_point;
-		} else {
-			ip->x = initF(0);
-			ip->y = initF(1);
-		}
-	}
-
-// removing completely unseen faces
-	int cpt_invisible=0;
+	// removing completely unseen faces
+	int cpt_invisible = 0;
 	auto it = mesh_triangles->begin();
 	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
 	{
@@ -240,22 +216,23 @@ void CameraThread::postProcessCamera() {
 			projections->points[it->p[1]].x >= 0.0 &&
 			projections->points[it->p[2]].x >= 0.0)
 		{
-			visibility[idx_face] = true; 
-		} else {
+			visibility[idx_face] = true;
+		}
+		else {
 			visibility[idx_face] = false;
 			cpt_invisible++;
 		}
 	}
 
-	if (visibility.size() - cpt_invisible !=0)
+	if (visibility.size() - cpt_invisible != 0)
 	{
 		//create kdtree
 		pcl::KdTreeFLANN<pcl::PointXY> kdtree;
-		kdtree.setInputCloud (projections);
+		kdtree.setInputCloud(projections);
 
 		std::vector<int> idxNeighbors;
 		std::vector<float> neighborsSquaredDistance;
-			// project all faces
+		// project all faces
 		it = mesh_triangles->begin();
 		for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
 		{
@@ -269,7 +246,7 @@ void CameraThread::postProcessCamera() {
 			pcl::PointXY uv_coord1 = projections->points[it->p[0]];
 			pcl::PointXY uv_coord2 = projections->points[it->p[1]];
 			pcl::PointXY uv_coord3 = projections->points[it->p[2]];
-			
+
 			if (uv_coord1.x >= 0.0 && uv_coord2.x >= 0.0 && uv_coord3.x >= 0.0)
 			{
 				//face is in the camera's FOV
@@ -277,26 +254,29 @@ void CameraThread::postProcessCamera() {
 				double radius;
 				pcl::PointXY center;
 				// getTriangleCircumcenterAndSize (uv_coord1, uv_coord2, uv_coord3, center, radius);
-				if ((uv_coord1.x == uv_coord2.x && uv_coord1.y == uv_coord2.y) && 
+				if ((uv_coord1.x == uv_coord2.x && uv_coord1.y == uv_coord2.y) &&
 					(uv_coord2.x == uv_coord3.x && uv_coord2.y == uv_coord3.y)) {
 					center = uv_coord1;
 					radius = 0.00001;
-				} else
-					ColorMapper::getTriangleCircumcscribedCircleCentroid(uv_coord1, uv_coord2, uv_coord3, center, radius); // this function yields faster results than getTriangleCircumcenterAndSize
-
+				}
+				else {
+					Eigen::Vector2f ecenter;
+					getTriangleCircumcscribedCircleCentroid(p2_to_v2e(uv_coord1), p2_to_v2e(uv_coord2), p2_to_v2e(uv_coord3), ecenter, radius); // this function yields faster results than getTriangleCircumcenterAndSize
+					center = v2e_to_p2(ecenter);
+				}
 				// get points inside circ.circle
-				if (kdtree.radiusSearch (center, radius, idxNeighbors, neighborsSquaredDistance) > 0 )
+				if (kdtree.radiusSearch(center, radius, idxNeighbors, neighborsSquaredDistance) > 0)
 				{
 					// for each neighbor
-					for (size_t i = 0; i < idxNeighbors.size (); ++i)
+					for (size_t i = 0; i < idxNeighbors.size(); ++i)
 					{
-						if (std::max (camera_z[it->p[0]],
-							std::max (camera_z[it->p[1]], 
-									  camera_z[it->p[2]]))
-									< camera_z[idxNeighbors[i]])
+						if (std::max(camera_z[it->p[0]],
+							std::max(camera_z[it->p[1]],
+								camera_z[it->p[2]]))
+							< camera_z[idxNeighbors[i]])
 						{
 							// neighbor is farther than all the face's points. Check if it falls into the triangle
-							if (ColorMapper::checkPointInsideTriangle(uv_coord1, uv_coord2, uv_coord3, projections->points[idxNeighbors[i]]))
+							if (checkPointInsideTriangle(p2_to_v2e(uv_coord1), p2_to_v2e(uv_coord2), p2_to_v2e(uv_coord3), p2_to_v2e(projections->points[idxNeighbors[i]])))
 							{
 								projections->points[idxNeighbors[i]] = nan_point;
 							}
@@ -305,8 +285,55 @@ void CameraThread::postProcessCamera() {
 				}
 			}
 		}
-	} // end' occluding
+	}
+	// end' occluding
+}
 
+
+void CameraThread::postProcessCamera() {
+
+	// transform mesh into camera's frame
+
+	pcl::PointCloud<pcl::PointXY>::Ptr projections(new pcl::PointCloud<pcl::PointXY>);
+	projections->points.resize(processing_points_size); // old size //cloud->points.size()); 
+
+	Matrix4d transf = eTrotation(*x, *TransM);
+
+	pcl::PointXY nan_point;
+	nan_point.x = -1.0;
+	nan_point.y = -1.0;
+
+	{
+		vector<float> camera_z(mesh_vertices->size()); // new size
+
+		auto itp = mesh_vertices->begin();
+		auto ip = projections->points.begin();
+		for (int ind = 0; ind < processing_points_size; ++ip, ++itp, ++ind) { // itp != cloud->points.end()
+
+			Vector4d pnt;
+			pnt(0) = itp->x;
+			pnt(1) = itp->y;
+			pnt(2) = itp->z;
+			pnt(3) = 1;
+
+			Vector4d initG = Gfunc(pnt, transf);
+			Vector2d initU = Ufunc(initG, cp);
+			Vector2d initF = Ffunc(initU, *x, aparam);
+
+			camera_z[ind] = initG(2);
+
+			if (initF(0) < 0 && initF(1) < 0 &&
+				initF(0) > cp.color_width - 1 && initF(1) > cp.color_height - 1) {
+				(*ip) = nan_point;
+			}
+			else {
+				ip->x = initF(0);
+				ip->y = initF(1);
+			}
+		}
+
+		kdtree_visibility_check(projections, mesh_triangles, camera_z);
+	}
 // adding color to each point
 	normal camera;
 	camera.x = (*TransM)(0,3);
@@ -318,8 +345,8 @@ void CameraThread::postProcessCamera() {
 	if (mesh_vertices->size() > processing_points_size) {
 		projections->points.resize(mesh_vertices->size());
 		
-		itp = mesh_vertices->begin() + processing_points_size;
-		ip = projections->points.begin() + processing_points_size;
+		auto itp = mesh_vertices->begin() + processing_points_size;
+		auto ip = projections->points.begin() + processing_points_size;
 		auto ep = edge_points->begin();
 		for (int ind = processing_points_size; itp != mesh_vertices->end(); ++ip, ++itp, ++ind, ++ep) {
 			if (projections->points[ep->first].x >= 0 && projections->points[ep->second].x >= 0) {
@@ -345,9 +372,9 @@ void CameraThread::postProcessCamera() {
 	}
 // projections size expanded
 
-	ident_mutex.lock(); // for save avgcolors inc
+	ident_mutex.lock(); // for safe avgcolors inc
 
-	ip = projections->points.begin();
+	auto ip = projections->points.begin();
 	for (int i = 0; ip != projections->points.end(); ++ip, ++i) { 
 
 		pcl::PointXY uv_coord1 = (*ip);
@@ -365,7 +392,7 @@ void CameraThread::postProcessCamera() {
 			
 			weight /= tocam.getLen()*tocam.getLen();
 
-			if (!ColorMapper::mapUVtoDepth(uv_coord1, &cam->depth[0], cp))
+			if (!mapUVtoDepth(p2_to_v2e(uv_coord1), &cam->depth[0], cp))
 				weight *= 0.001;
 
 			if (weight > 0) {
@@ -390,102 +417,25 @@ void CameraThread::preProcessCamera() {
 		// transform mesh into camera's frame
 		//pcl::PointCloud<PointXYZ>::Ptr camera_cloud (new pcl::PointCloud<PointXYZ>);
 		//pcl::transformPointCloud (*cloud, *camera_cloud, cam->pose.inverse ());
-		vector<Model::PointXYZ> camera_cloud(mesh_vertices->size());
+		vector<float> camera_z(mesh_vertices->size());
+
 		Affine3f cam_pose_inv = cam->pose.inverse();
-		for (auto it_m = mesh_vertices->begin(), it_cc = camera_cloud.begin(); it_m != mesh_vertices->end(); ++it_m, ++it_cc) {
-			Vector3f p(it_m->x, it_m->y, it_m->z);
-			Vector3f p_cam = cam_pose_inv*p;
-			*it_cc = Model::PointXYZ(p_cam.x(), p_cam.y(), p_cam.z(), 1.0f);
-		}
-
-	    
-		std::vector<bool> visibility;
-		visibility.resize (mesh_triangles->size ());
-
-		pcl::PointXY nan_point;
-		nan_point.x = -1.0; 
-		nan_point.y = -1.0; 
 
 		Eigen::Vector2d proj;
-		for (int ip = 0; ip < camera_cloud.size(); ++ip) {
-			getPointUVCoordinates(camera_cloud[ip], proj, cp);
-			projections->points[ip].x = proj.x(); projections->points[ip].y = proj.y();
-		}
-		// removing completely unseen faces
-		int cpt_invisible=0;
-		auto it = mesh_triangles->begin();
-		for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
-		{
-			if (projections->points[it->p[0]].x >= 0.0 &&
-				projections->points[it->p[1]].x >= 0.0 &&
-				projections->points[it->p[2]].x >= 0.0)
-			{
-				visibility[idx_face] = true; 
-			} else {
-				visibility[idx_face] = false;
-				cpt_invisible++;
-			}
-		}
 
-		if (visibility.size() - cpt_invisible !=0)
-		{
-			//create kdtree
-			pcl::KdTreeFLANN<pcl::PointXY> kdtree;
-			kdtree.setInputCloud (projections);
-
-			std::vector<int> idxNeighbors;
-			std::vector<float> neighborsSquaredDistance;
-				// project all faces
-			it = mesh_triangles->begin();
-			for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
-			{
-
-				if (!visibility[idx_face])
-				{
-					// no need to check
-					continue;
-				}
-
-				pcl::PointXY uv_coord1 = projections->points[it->p[0]];
-				pcl::PointXY uv_coord2 = projections->points[it->p[1]];
-				pcl::PointXY uv_coord3 = projections->points[it->p[2]];
+		int ind = 0;
+		for (auto it_m = mesh_vertices->begin(); it_m != mesh_vertices->end(); ++it_m, ++ind) {
+			Vector3f p(it_m->x, it_m->y, it_m->z);
+			Vector3f p_cam = cam_pose_inv*p;
 			
-				if (uv_coord1.x >= 0.0 && uv_coord2.x >= 0.0 && uv_coord3.x >= 0.0)
-				{
-					//face is in the camera's FOV
-					//get its circumsribed circle
-					double radius;
-					pcl::PointXY center;
-					// getTriangleCircumcenterAndSize (uv_coord1, uv_coord2, uv_coord3, center, radius);
-					if ((uv_coord1.x == uv_coord2.x && uv_coord1.y == uv_coord2.y) && 
-						(uv_coord2.x == uv_coord3.x && uv_coord2.y == uv_coord3.y)) {
-						center = uv_coord1;
-						radius = 0.00001;
-					} else
-						ColorMapper::getTriangleCircumcscribedCircleCentroid(uv_coord1, uv_coord2, uv_coord3, center, radius); // this function yields faster results than getTriangleCircumcenterAndSize
+			Model::PointXYZ p_cam_xyz = Model::PointXYZ(p_cam.x(), p_cam.y(), p_cam.z(), 1.0f);
+			camera_z[ind] = p_cam.z();
 
-					// get points inside circ.circle
-					if (kdtree.radiusSearch (center, radius, idxNeighbors, neighborsSquaredDistance) > 0 )
-					{
-						// for each neighbor
-						for (size_t i = 0; i < idxNeighbors.size (); ++i)
-						{
-							if (std::max (camera_cloud[it->p[0]].z,
-								std::max (camera_cloud[it->p[1]].z, 
-											camera_cloud[it->p[2]].z))
-										< camera_cloud[idxNeighbors[i]].z)
-							{
-								// neighbor is farther than all the face's points. Check if it falls into the triangle
-								if (ColorMapper::checkPointInsideTriangle(uv_coord1, uv_coord2, uv_coord3, projections->points[idxNeighbors[i]]))
-								{
-									projections->points[idxNeighbors[i]] = nan_point;
-								}
-							}
-						}
-					}
-				}
-			}
-		} // end' occluding
+			getPointUVCoordinates(p_cam_xyz, proj, cp);
+			projections->points[ind].x = proj.x(); projections->points[ind].y = proj.y();
+		}
+	   
+		kdtree_visibility_check(projections, mesh_triangles, camera_z);
 	}
 	// adding color to each point
 	normal camera;
@@ -493,7 +443,8 @@ void CameraThread::preProcessCamera() {
 	camera.y = (*TransM)(1,3);
 	camera.z = (*TransM)(2,3);
 
-	ident_mutex.lock(); // память экономим и comp_bw аккуратно вычисляем
+	ident_mutex.lock(); // process each camera sequentially
+
 	cout << "Thread " << threadId << " preprocess finish - computing camera_point_inds" << endl;
 	vector<point_bw> temp_points;
 	temp_points.reserve(mesh_vertices->size());
@@ -504,7 +455,7 @@ void CameraThread::preProcessCamera() {
 		if (uv_coord1.x >= 8.0 && uv_coord1.x <= width - 9.0 &&
 			uv_coord1.y >= 8.0 && uv_coord1.y <= height - 9.0 &&
 			
-			ColorMapper::mapUVtoDepth(uv_coord1, &cam->depth[0], cp)) {
+			mapUVtoDepth(p2_to_v2e(uv_coord1), &cam->depth[0], cp)) {
 			
 			normal tocam;
 			tocam.x = camera.x- mesh_vertices->operator[](i).x;
