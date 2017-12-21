@@ -1,15 +1,9 @@
 #include "glwidget.h"
 #include "utils.h"
 
-QMutex glWidget::texture_mutex;
-
 glWidget::glWidget(QWidget *parent) :
     QGLWidget(parent)
 {
-	mVaoGrid = NULL;
-	mVaoMesh = NULL;
-
-
 	camLook = QVector3D(0,0,0);
     angle1 = 180.0f;
     angle2 = 0.0f;
@@ -19,7 +13,6 @@ glWidget::glWidget(QWidget *parent) :
 	initialized = false;
 	draw_color = false;
 	painting = false;
-	col = QColor(50, 0, 160);
 
 	_rec_set.volume_size = 1;
 	_rec_set.doubleY = false;
@@ -75,6 +68,8 @@ glWidget::glWidget(QWidget *parent) :
 	state = ProgramState::INIT;
 }
 
+glWidget::~glWidget() {}
+
 void glWidget::resizeGL(int width, int height) {
     if (height == 0)
         height = 1;
@@ -89,7 +84,7 @@ void glWidget::initializeGL() {
 
 	initializeOpenGLFunctions();
     
-	qglClearColor(col);
+	qglClearColor(QColor(50, 0, 160));
     glEnable(GL_DEPTH_TEST);
 //	glEnable(GL_CULL_FACE);
 
@@ -116,10 +111,7 @@ void glWidget::initializeGL() {
 	lineProgram.bind();
 
 // camera buffers
-	mVaoCam = new QOpenGLVertexArrayObject(this);
-	mVaoCam->create();
-	mVaoCam->bind();
-
+	camBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	camBuffer.create();
 	camBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
 	camBuffer.bind();
@@ -132,19 +124,15 @@ void glWidget::initializeGL() {
 	camindBuffer.bind();
 	camindBuffer.allocate(cam_inds.constData(), cam_inds.size() * sizeof(unsigned int));
 	camindBuffer.release();
-	mVaoCam->release();
+
 
 // grid buffers
-	mVaoGrid = new QOpenGLVertexArrayObject(this);
-	mVaoGrid->create();
-	mVaoGrid->bind();
 
+	gridBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	gridBuffer.create();
     gridBuffer.setUsagePattern( QOpenGLBuffer::StreamDraw );
 	gridBuffer.bind();
 	gridBuffer.allocate(points.constData(), points.size()*sizeof(float));
-//	lineProgram.enableAttributeArray("vertex");
-//	lineProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3);
 	gridBuffer.release();
 
 	indBuffer = QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
@@ -153,7 +141,6 @@ void glWidget::initializeGL() {
 	indBuffer.bind();
 	indBuffer.allocate(inds.constData(), inds.size()*sizeof(unsigned int));
 	indBuffer.release();
-	mVaoGrid->release();
 	
 	lineProgram.release();
 
@@ -176,6 +163,8 @@ void glWidget::computeQuadVertices() {
 
 }
 
+// DRAW
+
 void glWidget::paintGL() {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -194,155 +183,14 @@ void glWidget::paintGL() {
 
 	switch (state) {
 	case INIT:
-		{
-			// cube
-			lineProgram.bind();
-
-			mVaoGrid->bind();
-			gridBuffer.bind();
-			indBuffer.bind();
-			mMatrix = QMatrix4x4();
-			mMatrix.scale(_rec_set.volume_size, (_rec_set.doubleY ? _rec_set.volume_size*2 : _rec_set.volume_size), _rec_set.volume_size);
-
-			lineProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-			lineProgram.setUniformValue("color", QColor(255, 255, 255));
-			lineProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3);
-			lineProgram.enableAttributeArray("vertex");
-			glDrawElements(GL_LINES, inds.size(), GL_UNSIGNED_INT, 0);
-			lineProgram.disableAttributeArray("vertex");
-	
-			indBuffer.release();
-			gridBuffer.release();
-			mVaoGrid->release();
-			lineProgram.release();
-			
-			if (cloud_points.size() > 0) {
-				cloud_mutex.lock();
-				
-				QMatrix4x4 mcorrMatrix = QMatrix4x4();
-				mcorrMatrix(0, 0) = -1;
-				mcorrMatrix(1, 1) = -1;
-				QMatrix4x4 mOffsetMatrix = QMatrix4x4();
-				offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
-				mOffsetMatrix.translate(offset);
-
-				QMatrix4x4 mPoseMatrix = computeCamPose(_rec_set);
-
-				mMatrix = mcorrMatrix * mOffsetMatrix*mPoseMatrix;
-				drawCamera(mPoseMatrix, QColor(255, 255, 0));
-
-				colorProgram.bind();
-				colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-				colorProgram.setAttributeArray("vertex", cloud_points.constData());
-				colorProgram.setAttributeArray("color", cloud_colors.constData());
-				colorProgram.enableAttributeArray("vertex");
-				colorProgram.enableAttributeArray("color");
-				glDrawArrays(GL_POINTS, 0, cloud_points.size());
-				colorProgram.disableAttributeArray("color");
-				colorProgram.disableAttributeArray("vertex");
-				colorProgram.release();
-
-				cloud_mutex.unlock();
-			}
-		}
+		drawGrid();
+		drawCloud();
 		break;
 	case KINFU:
-		{
-			computeQuadVertices();
-
-			// front img
-			textureProgram.bind();
-
-			glBindTexture(GL_TEXTURE_2D, this->texture);
-
-			textureProgram.setUniformValue("mvpMatrix", pMatrix);
-
-			textureProgram.setAttributeArray("vertex", imgQuad.constData());
-			textureProgram.setAttributeArray("texcoord", imgTexCoord.constData());
-			textureProgram.enableAttributeArray("vertex");
-			textureProgram.enableAttributeArray("texcoord");
-			glDrawArrays(GL_QUADS, 0, imgQuad.size());
-			textureProgram.disableAttributeArray("texcoord");
-			textureProgram.disableAttributeArray("vertex");
-
-			textureProgram.release();
-		}
+		drawFrame();
 		break;
 	case COLOR: case FINAL:
-		{
-			if (initialized) {
-
-				if (!draw_color) {
-					cloud_mutex.lock();
-
-					normalProgram.bind();
-
-					mVaoMesh->bind();
-					meshBuffer.bind();
-					meshindBuffer.bind();
-
-					offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
-
-					QMatrix4x4 mcorrMatrix = QMatrix4x4();
-					mcorrMatrix(0, 0) = -1;
-					mcorrMatrix(1, 1) = -1;
-					QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
-					mMatrix = mcorrMatrix * mOffsetMatrix;
-
-					normalProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-					normalProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-					normalProgram.enableAttributeArray("vertex");
-					normalProgram.setAttributeBuffer("normal", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
-					normalProgram.enableAttributeArray("normal");
-					glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
-					normalProgram.disableAttributeArray("vertex");
-					normalProgram.disableAttributeArray("normal");
-
-					meshindBuffer.release();
-					meshBuffer.release();
-					mVaoMesh->release();
-
-					normalProgram.release();
-
-					for (int i = 0; i < camposes.size(); ++i)
-						drawCamera(camposes[i], QColor(255, 255, 255));
-
-					cloud_mutex.unlock();
-
-				}
-				else {
-					cloud_mutex.lock();
-
-					colorProgram.bind();
-
-					mVaoMesh->bind();
-					meshBuffer.bind();
-					meshindBuffer.bind();
-
-					QMatrix4x4 mcorrMatrix = QMatrix4x4();
-					mcorrMatrix(0, 0) = -1;
-					mcorrMatrix(1, 1) = -1;
-					QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
-					mMatrix = mcorrMatrix * mOffsetMatrix;
-
-					colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
-					colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
-					colorProgram.enableAttributeArray("vertex");
-					colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
-					colorProgram.enableAttributeArray("color");
-					glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
-					colorProgram.disableAttributeArray("vertex");
-
-					meshindBuffer.release();
-					meshBuffer.release();
-					mVaoMesh->release();
-
-					colorProgram.release();
-
-					cloud_mutex.unlock();
-				}
-			}
-		}
+		drawMesh();
 		break;
 	default:
 		break;
@@ -353,10 +201,30 @@ void glWidget::paintGL() {
 	painting = false;
 }
 
+void glWidget::drawGrid() {
+	// cube
+	lineProgram.bind();
+
+	gridBuffer.bind();
+	indBuffer.bind();
+	mMatrix = QMatrix4x4();
+	mMatrix.scale(_rec_set.volume_size, (_rec_set.doubleY ? _rec_set.volume_size * 2 : _rec_set.volume_size), _rec_set.volume_size);
+
+	lineProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+	lineProgram.setUniformValue("color", QColor(255, 255, 255));
+	lineProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3);
+	lineProgram.enableAttributeArray("vertex");
+	glDrawElements(GL_LINES, inds.size(), GL_UNSIGNED_INT, 0);
+	lineProgram.disableAttributeArray("vertex");
+
+	indBuffer.release();
+	gridBuffer.release();
+	lineProgram.release();
+}
+
 void glWidget::drawCamera(QMatrix4x4 pose, QColor color) {
 	lineProgram.bind();
 
-	mVaoCam->bind();
 	camBuffer.bind();
 	camindBuffer.bind();
 
@@ -375,26 +243,137 @@ void glWidget::drawCamera(QMatrix4x4 pose, QColor color) {
 
 	camindBuffer.release();
 	camBuffer.release();
-	mVaoCam->release();
 	lineProgram.release();
 
 }
 
-glWidget::~glWidget() {
-	if (mVaoGrid != NULL) {
-		mVaoGrid->bind();
-		mVaoGrid->destroy();
-		mVaoGrid->release();
-		delete mVaoGrid;
-	}
+void glWidget::drawCloud() {
+	if (cloud_points.size() > 0) {
+		cloud_mutex.lock();
 
-	if (mVaoCam != NULL) {
-		mVaoCam->bind();
-		mVaoCam->destroy();
-		mVaoCam->release();
-		delete mVaoCam;
+		QMatrix4x4 mcorrMatrix = QMatrix4x4();
+		mcorrMatrix(0, 0) = -1;
+		mcorrMatrix(1, 1) = -1;
+		QMatrix4x4 mOffsetMatrix = QMatrix4x4();
+		offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
+		mOffsetMatrix.translate(offset);
+
+		QMatrix4x4 mPoseMatrix = computeCamPose(_rec_set);
+
+		mMatrix = mcorrMatrix * mOffsetMatrix*mPoseMatrix;
+		drawCamera(mPoseMatrix, QColor(255, 255, 0));
+
+		colorProgram.bind();
+		colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+		colorProgram.setAttributeArray("vertex", cloud_points.constData());
+		colorProgram.setAttributeArray("color", cloud_colors.constData());
+		colorProgram.enableAttributeArray("vertex");
+		colorProgram.enableAttributeArray("color");
+		glDrawArrays(GL_POINTS, 0, cloud_points.size());
+		colorProgram.disableAttributeArray("color");
+		colorProgram.disableAttributeArray("vertex");
+		colorProgram.release();
+
+		cloud_mutex.unlock();
 	}
 }
+
+void glWidget::drawFrame() {
+
+	computeQuadVertices();
+
+	// front img
+	textureProgram.bind();
+
+	glBindTexture(GL_TEXTURE_2D, this->texture);
+
+	textureProgram.setUniformValue("mvpMatrix", pMatrix);
+
+	textureProgram.setAttributeArray("vertex", imgQuad.constData());
+	textureProgram.setAttributeArray("texcoord", imgTexCoord.constData());
+	textureProgram.enableAttributeArray("vertex");
+	textureProgram.enableAttributeArray("texcoord");
+	glDrawArrays(GL_QUADS, 0, imgQuad.size());
+	textureProgram.disableAttributeArray("texcoord");
+	textureProgram.disableAttributeArray("vertex");
+
+	textureProgram.release();
+}
+
+void glWidget::drawMesh() {
+	if (initialized) {
+		cloud_mutex.lock();
+
+		if (!draw_color) {
+
+			normalProgram.bind();
+
+			meshBuffer.bind();
+			meshindBuffer.bind();
+
+			offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
+
+			QMatrix4x4 mcorrMatrix = QMatrix4x4();
+			mcorrMatrix(0, 0) = -1;
+			mcorrMatrix(1, 1) = -1;
+			QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
+			mMatrix = mcorrMatrix * mOffsetMatrix;
+
+			normalProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+			normalProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
+			normalProgram.enableAttributeArray("vertex");
+			normalProgram.setAttributeBuffer("normal", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
+			normalProgram.enableAttributeArray("normal");
+			glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
+			normalProgram.disableAttributeArray("vertex");
+			normalProgram.disableAttributeArray("normal");
+
+			meshindBuffer.release();
+			meshBuffer.release();
+
+			normalProgram.release();
+		}
+		else {
+			colorProgram.bind();
+
+			meshBuffer.bind();
+			meshindBuffer.bind();
+
+			QMatrix4x4 mcorrMatrix = QMatrix4x4();
+			mcorrMatrix(0, 0) = -1;
+			mcorrMatrix(1, 1) = -1;
+			QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
+			mMatrix = mcorrMatrix * mOffsetMatrix;
+
+			colorProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+			colorProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
+			colorProgram.enableAttributeArray("vertex");
+			colorProgram.setAttributeBuffer("color", GL_FLOAT, sizeof(float) * 3, 3, sizeof(color_vertex));
+			colorProgram.enableAttributeArray("color");
+			glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
+			colorProgram.disableAttributeArray("vertex");
+
+			meshindBuffer.release();
+			meshBuffer.release();
+
+			colorProgram.release();
+
+		}
+
+		for (int i = 0; i < camposes.size(); ++i)
+			drawCamera(camposes[i], QColor(255, 255, 255));
+
+		cloud_mutex.unlock();
+	}
+}
+
+// FRAMEBUFFER RENDERING
+
+bool glWidget::render(QMatrix4x4 pose, iparams params, std::vector<float>& depth) {
+	return false; // TODO
+}
+
+// MOUSE
 
 void glWidget::mousePressEvent(QMouseEvent * event) {
     lastPosition = QVector2D(event->x(), event->y());
@@ -621,13 +600,7 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 		}
 	}
 // ----------
-	if (mVaoMesh != NULL) 
-		delete mVaoMesh;
-
-	mVaoMesh = new QOpenGLVertexArrayObject( this );
-    mVaoMesh->create();
-    mVaoMesh->bind();
-
+	meshBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	meshBuffer.create();
     meshBuffer.setUsagePattern( QOpenGLBuffer::StreamDraw );
     meshBuffer.bind();
@@ -638,10 +611,8 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 	meshindBuffer.create();
 	meshindBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
 	meshindBuffer.bind();
-	meshindBuffer.allocate(mesh_inds.constData(),mesh_inds.size()*sizeof(unsigned int));
+	meshindBuffer.allocate(mesh_inds.constData(), mesh_inds.size()*sizeof(unsigned int));
 	meshindBuffer.release();
-
-	mVaoMesh->release();
 
 	initialized = true;
 	draw_color = has_color;

@@ -14,6 +14,7 @@
 #include "algoparams.h"
 #include "algofuncs.h"
 #include "model.h"
+#include "renderer.h"
 
 class CameraThread : public QThread
 {
@@ -25,6 +26,8 @@ class CameraThread : public QThread
 	bool locked;
 	bool failed;
 public:
+	Renderer* renderer;
+
 	int threadId;
 	CameraTask task;
 	CameraParams cp;

@@ -48,8 +48,8 @@ private:
 	// internal program state switching
 	void setState(ProgramState);
 public:
-
-	Controller();
+	// in: renderer for colormapper
+	Controller(Renderer* renderer);
 	~Controller();
 
 	// prepare camera and threads

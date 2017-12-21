@@ -20,7 +20,7 @@ Scanelium::Scanelium(QWidget *parent)
 	qRegisterMetaType<rec_settings>("rec_settings");
 	qRegisterMetaType<Model::Ptr>("Model::Ptr");
 
-	this->_controller = new Controller();
+	this->_controller = new Controller(ui.bigViewer);
 	connect(_controller, &Controller::recSettingsUpdate, ui.bigViewer, &glWidget::refreshRecSettings);
 	connect(_controller, &Controller::cloudUpdate, ui.bigViewer, &glWidget::refreshCloud);
 	connect(_controller, &Controller::renderUpdate, ui.bigViewer, &glWidget::refreshTexture);

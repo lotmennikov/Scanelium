@@ -18,13 +18,14 @@ void callZhk(ColorMapper* cm) {
 	cm->mapColorsZhouKoltun();
 }
 
-ColorMapper::ColorMapper(QObject* parent) : QObject(parent) 
+ColorMapper::ColorMapper(Renderer* rnd) : QObject(NULL) 
 {
 	iteration_count = 1;
 	_started = false;
 	_stop = false;
 	camerathreads_num = 4;
 
+	renderer = rnd;
 	zhk_thread = NULL;
 	mesh_vertices = NULL;
 	mesh_triangles = NULL;
@@ -660,6 +661,7 @@ void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, Camer
 				thread->cam = _cameras[currentcam];
 				thread->TransM = TransM[currentcam];
 				thread->currentcam = currentcam;
+				thread->renderer = renderer;
 
 				if (task == PREPROCESS) {
 					thread->mesh_vertices = mesh_vertices;

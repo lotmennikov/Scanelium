@@ -18,6 +18,7 @@
 
 #include "model.h"
 #include <thread>
+#include "renderer.h"
 
 //const double eps = 0.000000001;
 
@@ -28,6 +29,8 @@ class COLORMAPPER_EXPORT ColorMapper : public QObject
 	Q_OBJECT
 
 private:
+	Renderer* renderer; // produces mesh depth maps
+
 	bool _started;
 	bool _stop;
 	bool end_iterations;
@@ -112,7 +115,7 @@ public:
 	std::vector<std::vector<point_bw>*> camera_point_inds;
 public:
 
-	ColorMapper(QObject* parent = 0);
+	ColorMapper(Renderer*);
 	~ColorMapper(void);
 
 	void init(Model::Ptr model, colormap_settings set);

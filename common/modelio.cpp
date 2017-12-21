@@ -33,16 +33,15 @@ bool ModelIO::openMesh(QString filename, Model::Ptr model) {
 			getline(fin, line);		// property float x
 			getline(fin, line);		// property float y
 			getline(fin, line);		// property float z
-			getline(fin, line);		// property float z
+			getline(fin, line);		// ?
 			list = QString::fromStdString(line).split(" ");
-			if (list.at(0).compare(QString::fromStdString("property")) == 0) {
+			if (list.at(0).compare(QString::fromStdString("property")) == 0) {  // property uchar r
 				has_color = true;
-				getline(fin, line);		// property float r
-				getline(fin, line);		// property float g
-				getline(fin, line);		// property float b
+				getline(fin, line);		// property uchar g
+				getline(fin, line);		// property uchar b
 				getline(fin, line);		// element
 			}
-			list = QString::fromStdString(line).split(" ");
+			list = QString::fromStdString(line).split(" "); // element face
 			num_triangles = list.at(2).toInt();
 			getline(fin, line);		// property list ...
 			getline(fin, line);		// end_header

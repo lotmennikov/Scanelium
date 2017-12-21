@@ -6,7 +6,7 @@
 
 #include "utils.h"
 
-Controller::Controller() : QObject(NULL) {
+Controller::Controller(Renderer* rnd) : QObject(NULL) {
 	_state = NONE;
 
 	_cam_set.color_res = ColorResolution::COLOR_VGA;
@@ -52,7 +52,7 @@ Controller::Controller() : QObject(NULL) {
 	connect(_rc, &Reconstructor::message, this, &Controller::recMessage);
 	connect(_rc, &Reconstructor::diffUpdate, this, &Controller::poseDiffUpdate);
 
-	_cm = new ColorMapper();
+	_cm = new ColorMapper(rnd);
 	connect(this, &Controller::colormapStart, _cm, &ColorMapper::start);
 	connect(_cm, &ColorMapper::refreshResidualError, this, &Controller::colormapErrorUpdate);
 	connect(_cm, &ColorMapper::message, this, &Controller::colormapMessage);

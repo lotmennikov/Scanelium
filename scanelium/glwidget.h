@@ -19,6 +19,7 @@
 
 #include "structs.h"
 #include "model.h"
+#include "renderer.h"
 
 typedef struct {
 	float vertex[3];
@@ -27,45 +28,49 @@ typedef struct {
 
 typedef color_vertex cn_vertex;
 
-class glWidget : public QGLWidget, protected QOpenGLFunctions
+class glWidget : public QGLWidget, protected QOpenGLFunctions, public Renderer
 {
-    Q_OBJECT
+	Q_OBJECT
 private:
+	QMutex texture_mutex;
+	QMutex cloud_mutex;
 
+	ProgramState state;
+	rec_settings _rec_set;
+
+// Programs
     QGLShaderProgram textureProgram;
     QGLShaderProgram lineProgram;
 	QGLShaderProgram normalProgram;
 	QGLShaderProgram colorProgram;
 
-	QOpenGLVertexArrayObject* mVaoGrid;
+// Buffers
 	QOpenGLBuffer gridBuffer;
 	QOpenGLBuffer indBuffer;
 
-	QOpenGLVertexArrayObject* mVaoMesh;
 	QOpenGLBuffer meshBuffer;
 	QOpenGLBuffer meshindBuffer;
 
-    bool movebegin;
+	QOpenGLBuffer camBuffer;
+	QOpenGLBuffer camindBuffer;
 
+// Scene rotation
+    bool movebegin;
     bool angleChanged;
+	float angle1, angle2;
+	float distance;
+	QVector2D lastPosition;
+	QVector3D camLook;
 
 	bool initialized;
 	bool painting;
 	bool draw_color;
 
-    float angle1, angle2;
-    float distance;
-
-    QVector2D lastPosition;
-
-    QVector3D camLook;
-
     QMatrix4x4 pMatrix;
 	QMatrix4x4 mMatrix;
 	QMatrix4x4 vMatrix;
 
-	QColor col;
-
+// Data
 	QVector<float> points;
 	QVector<unsigned int> inds;
 
@@ -85,33 +90,32 @@ private:
 	QVector<QMatrix4x4> camposes;
 	QVector<float> cam_points;
 	QVector<unsigned int> cam_inds;
-	QOpenGLVertexArrayObject* mVaoCam;
-	QOpenGLBuffer camBuffer;
-	QOpenGLBuffer camindBuffer;
+
+
+	void drawGrid();
+	void drawFrame();
 	void drawCamera(QMatrix4x4 pose, QColor color);
+	void drawCloud();
+	void drawMesh();
+
+	void computeQuadVertices();
 
 public:
     explicit glWidget(QWidget *parent = 0);
-
-	static QMutex texture_mutex;
-	QMutex cloud_mutex;
-
-	ProgramState state;
-	rec_settings _rec_set;
-
 	~glWidget();
     
 	void resizeGL(int, int);
     void initializeGL();
     void paintGL();
 
-	void computeQuadVertices();
-
     void mouseMoveEvent(QMouseEvent *);
     void mousePressEvent(QMouseEvent *);
     void mouseReleaseEvent(QMouseEvent *);
-
     void wheelEvent(QWheelEvent *);
+
+
+// renderer
+	bool render(QMatrix4x4 pose, iparams params, std::vector<float>& depth);
 
 signals:
 
