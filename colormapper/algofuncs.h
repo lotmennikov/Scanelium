@@ -22,7 +22,7 @@ double Fi(const Eigen::Vector2d& u, int indf, AlgoParams aparam);
 
 Eigen::Matrix4d eTrotation(const Eigen::VectorXd& xvec, const Eigen::Matrix4d& Ti, int add = -1, double step = 0);
 
-Eigen::Matrix<double, 4, 6> getJge(const Eigen::Vector4d& point, const Eigen::Matrix4d& Ti, const Eigen::VectorXd xvec);
+Eigen::Matrix<double, 4, 6> getJge(const Eigen::Vector4d& point, const Eigen::Matrix4d& Ti);
 
 Eigen::Matrix<double, 2, 4> getJug(const Eigen::Vector4d& g, iparams cip);
 

@@ -41,7 +41,7 @@ void CameraThread::computedx() {
 
 		Eigen::VectorXd res = VectorXd::Zero(camera_point_inds->size());            // residuals
 
-//		ident_mutex.lock(); locked = true; 
+		//ident_mutex.lock(); locked = true; 
 		Eigen::SparseMatrix<double> JrTs(aparam.matrixdim, camera_point_inds->size());
 		JrTs.reserve(VectorXi::Constant(camera_point_inds->size(), aparam.dof6 + 8));
 //		locked = false; ident_mutex.unlock(); 
@@ -70,17 +70,18 @@ void CameraThread::computedx() {
 				
 		
 	// * compute Jge  \/ g(e(al, be, ga, a, b, c))
-				Jge = getJge(pnt, *TransM, *x) ;
-	
+				Jge = getJge(pnt, *TransM);
+
 	// * compute Jug  \/
-				Eigen::Vector4d initG = Gfunc(pnt, eTrotation(*x, *TransM));
+				Eigen::Vector4d initG = Gfunc(pnt, *TransM);
+
 				Jug = getJug(initG, cip);
 
 	// * compute JFu  \/
 				Eigen::Vector2d initU = Ufunc(initG, cip); // checked projection
 
 				JFu = getJFu(initU, *x, aparam); // 0 if bad projection
-					
+
 	// * compute Gru  \/
 				Eigen::Vector2d initF = Ffunc(initU, *x, aparam); // nan if bad projection
 
@@ -144,11 +145,19 @@ void CameraThread::computedx() {
 		delete chol;
 		delete A;
 		cout << "<" << endl;
+		
+		
 		//locked = false; ident_mutex.unlock();
 
 		// COMPUTE NEW BW
 		*x += dx;
-		Matrix4d transf = eTrotation(*x, *TransM);
+		
+		//Matrix4d transf = eTrotation(*x, *TransM);
+		*TransM = eTrotation(dx, *TransM);
+		Matrix4d transf = *TransM;
+
+		for (int i = 0; i < 6; ++i) (*x)(i) = 0;
+
 		it = camera_point_inds->begin();
 		for (;it != camera_point_inds->end(); it++) {
 			Vector4d pnt;
@@ -168,7 +177,6 @@ void CameraThread::computedx() {
 				//	system("pause");
 			}		
 		}
-
 	//	cout << currentcam << ' ';
 	} catch (const std::exception& ex) {
 		cout << "Thread "<< threadId << " exception " << ex.what() << endl;
@@ -298,7 +306,7 @@ void CameraThread::postProcessCamera() {
 	pcl::PointCloud<pcl::PointXY>::Ptr projections(new pcl::PointCloud<pcl::PointXY>);
 	projections->points.resize(processing_points_size); // old size //cloud->points.size()); 
 
-	Matrix4d transf = eTrotation(*x, *TransM);
+	Matrix4d transf = *TransM;
 
 	pcl::PointXY nan_point;
 	nan_point.x = -1.0;
@@ -335,9 +343,10 @@ void CameraThread::postProcessCamera() {
 	}
 // adding color to each point
 	normal camera;
-	camera.x = (*TransM)(0,3);
-	camera.y = (*TransM)(1,3);
-	camera.z = (*TransM)(2,3);
+	Matrix4d pose_corr = TransM->inverse();
+	camera.x = pose_corr(0, 3);
+	camera.y = pose_corr(1, 3);
+	camera.z = pose_corr(2, 3);
 
 
 //increasing vertex count
@@ -422,15 +431,14 @@ void CameraThread::preProcessCamera() {
 		//pcl::transformPointCloud (*cloud, *camera_cloud, cam->pose.inverse ());
 		vector<float> camera_z(mesh_vertices->size());
 
-		Affine3f cam_pose_inv = cam->pose.inverse();
+		Matrix4d cam_pose_inv = *TransM;
 
 		Eigen::Vector2d proj;
 
 		int ind = 0;
 		for (auto it_m = mesh_vertices->begin(); it_m != mesh_vertices->end(); ++it_m, ++ind) {
-			Vector3f p(it_m->x, it_m->y, it_m->z);
-			Vector3f p_cam1 = cam_pose_inv*p;
-			Vector4d p_cam = Vector4d(p_cam1(0), p_cam1(1), p_cam1(2), 1.0);
+			Vector4d p(it_m->x, it_m->y, it_m->z, 1.0f);
+			Vector4d p_cam = cam_pose_inv*p;
 			camera_z[ind] = p_cam.z();
 
 			proj = Ufunc(p_cam, cip);
@@ -446,9 +454,10 @@ void CameraThread::preProcessCamera() {
 	}
 	// adding color to each point
 	normal camera;
-	camera.x = (*TransM)(0,3);
-	camera.y = (*TransM)(1,3);
-	camera.z = (*TransM)(2,3);
+	Matrix4d pose_corr = TransM->inverse();
+	camera.x = pose_corr(0,3);
+	camera.y = pose_corr(1,3);
+	camera.z = pose_corr(2,3);
 
 	ident_mutex.lock(); // process each camera sequentially
 

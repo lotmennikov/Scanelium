@@ -315,7 +315,8 @@ ColorMapper::mapColorsZhouKoltun() {
 		
 	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 	{
-		TransM.push_back(new Eigen::Matrix4d(_cameras[current_cam]->pose.matrix().cast<double>()));
+		Eigen::Matrix4d* Mtcam = new Eigen::Matrix4d(_cameras[current_cam]->pose.matrix().cast<double>()); *Mtcam = Mtcam->inverse();
+		TransM.push_back(Mtcam);
 		camera_point_inds[current_cam] = new vector<point_bw>();
 		if (!_cameras[current_cam]->depth_processed) {
 			computeDepthDiscont(&_cameras[current_cam]->depth[0], camparams);
