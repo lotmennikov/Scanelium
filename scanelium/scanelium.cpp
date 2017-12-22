@@ -17,16 +17,20 @@ Scanelium::Scanelium(QWidget *parent)
 
 	qRegisterMetaType<QVector<QVector3D>>("QVector<QVector3D>");
 	qRegisterMetaType<std::vector<unsigned short>>("std::vector<unsigned short>");
+	qRegisterMetaType<std::vector<float>>("std::vector<float>");
 	qRegisterMetaType<rec_settings>("rec_settings");
 	qRegisterMetaType<Model::Ptr>("Model::Ptr");
+	qRegisterMetaType<iparams>("iparams");
 
-	this->_controller = new Controller(ui.bigViewer);
+	this->_controller = new Controller();
 	connect(_controller, &Controller::recSettingsUpdate, ui.bigViewer, &glWidget::refreshRecSettings);
 	connect(_controller, &Controller::cloudUpdate, ui.bigViewer, &glWidget::refreshCloud);
 	connect(_controller, &Controller::renderUpdate, ui.bigViewer, &glWidget::refreshTexture);
 	connect(_controller, &Controller::meshUpdate, ui.bigViewer, &glWidget::setPolygonMesh);
 	connect(_controller, &Controller::poseUpdate, ui.bigViewer, &glWidget::newCameraPose);
 	connect(_controller, &Controller::stateChanged, ui.bigViewer, &glWidget::stateChanged);
+	connect(_controller, &Controller::renderRequest, ui.bigViewer, &glWidget::render);
+	connect(ui.bigViewer, &glWidget::renderFinished, _controller, &Controller::renderFinished);
 
 	connect(_controller, &Controller::statusUpdate, this, &Scanelium::refreshStatus);
 	connect(_controller, &Controller::stateChanged, this, &Scanelium::stateChanged);

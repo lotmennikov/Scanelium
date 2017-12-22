@@ -6,6 +6,7 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qmutex.h>
 #include <queue>
+#include <qmatrix4x4.h>
 
 #include <Eigen/Core>
 #include <Eigen/Sparse>
@@ -18,7 +19,6 @@
 
 #include "model.h"
 #include <thread>
-#include "renderer.h"
 
 //const double eps = 0.000000001;
 
@@ -29,7 +29,9 @@ class COLORMAPPER_EXPORT ColorMapper : public QObject
 	Q_OBJECT
 
 private:
-	Renderer* renderer; // produces mesh depth maps
+	QMutex render_mutex;
+	bool render_return;
+	std::vector<float> render_result;
 
 	bool _started;
 	bool _stop;
@@ -58,10 +60,9 @@ private:
 	int iteration;
 	std::vector<Eigen::VectorXd*> x;
 
-	void 
-	increaseVertexCount();
+	std::thread* zhk_thread;
 
-	// all for increasing vertex count
+// all for increasing vertex count
 	int oldpoints;
 	int newpoints;
 
@@ -76,30 +77,13 @@ private:
 
 	void run();
 	void cancelThreads();
-
+	void increaseVertexCount();
 	void multithread(CameraTask task, AlgoParams ap, iparams cip, CameraParams cp);
 
 public:
-	
-	std::thread* zhk_thread;
-	void
-		mapColorsZhouKoltun();
-
-	
+	void mapColorsZhouKoltun();
 
 	static AlgoParams algoparams;
-//	static float camwidth;
-//	static float camheight;
-//	static float dwidth;
-//	static float dheight;
-//	static float focal_length;
-//	static bool camera_ratio_diff;
-//	static double stepx;
-//	static double stepy;
-//	static const int gridsizex = 11;
-//	static const int gridsizey = 9;
-//	static const int dof6 = 6;
-//	static const int matrixdim = dof6 + gridsizex*gridsizey*2;
 
 	static std::vector<average_grey> comp_bw;
 	static std::vector<average_color> avgcolors;
@@ -115,12 +99,10 @@ public:
 	std::vector<std::vector<point_bw>*> camera_point_inds;
 public:
 
-	ColorMapper(Renderer*);
+	ColorMapper();
 	~ColorMapper(void);
 
 	void init(Model::Ptr model, colormap_settings set);
-	//void setModel(Model::Ptr model);
-	//void setCameras(std::vector<Frame*> cameras);
 	void setIterations(int iteration_count);
 	//void setThreadsNum(int threads);
 	//void setDetalisation(bool det);
@@ -134,9 +116,10 @@ public:
 public slots:
 	void cameraTaskFinished(int camera, int thread, bool success);
 	void cameraTaskError(int thread, std::string msg);
-
+	void renderFinished(bool res, std::vector<float> dpt);
 signals:
 //	void iterationFinished(int iteration);
+	void renderRequest(QMatrix4x4 pose, iparams ip);
 
 	void message(QString message, int progress);
 	void refreshResidualError(double initial, double current);

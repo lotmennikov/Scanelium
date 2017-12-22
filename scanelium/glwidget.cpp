@@ -1,6 +1,10 @@
 #include "glwidget.h"
 #include "utils.h"
 
+
+#define printGlError(a) if (a != GL_NO_ERROR) printf("GL Error %d\n", a);
+
+
 glWidget::glWidget(QWidget *parent) :
     QGLWidget(parent)
 {
@@ -66,9 +70,13 @@ glWidget::glWidget(QWidget *parent) :
 	img.fill(QColor(Qt::green));
 
 	state = ProgramState::INIT;
+
+	depthFrameBuffer = NULL;
 }
 
-glWidget::~glWidget() {}
+glWidget::~glWidget() {
+	if (depthFrameBuffer != NULL) delete depthFrameBuffer;
+}
 
 void glWidget::resizeGL(int width, int height) {
     if (height == 0)
@@ -99,7 +107,6 @@ void glWidget::initializeGL() {
 	textureProgram.addShaderFromSourceFile(QGLShader::Vertex, ":/shader/textureVertexShader.vsh");
 	textureProgram.addShaderFromSourceFile(QGLShader::Fragment, ":/shader/textureFragmentShader.fsh");
 	textureProgram.link();
-	textureProgram.bind();
 
 	texture = bindTexture(img, GL_TEXTURE_2D);
 	textureProgram.release();
@@ -108,7 +115,9 @@ void glWidget::initializeGL() {
 	lineProgram.addShaderFromSourceFile(QGLShader::Fragment, ":/shader/simpleFragmentShader.fsh");
 	lineProgram.link();
 
-	lineProgram.bind();
+	depthProgram.addShaderFromSourceFile(QGLShader::Vertex, ":/shader/depth.vsh");
+	depthProgram.addShaderFromSourceFile(QGLShader::Fragment, ":/shader/depth.fsh");
+	depthProgram.link();
 
 // camera buffers
 	camBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
@@ -125,7 +134,6 @@ void glWidget::initializeGL() {
 	camindBuffer.allocate(cam_inds.constData(), cam_inds.size() * sizeof(unsigned int));
 	camindBuffer.release();
 
-
 // grid buffers
 
 	gridBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
@@ -141,10 +149,10 @@ void glWidget::initializeGL() {
 	indBuffer.bind();
 	indBuffer.allocate(inds.constData(), inds.size()*sizeof(unsigned int));
 	indBuffer.release();
-	
-	lineProgram.release();
 
 	glPointSize(2.0f);
+
+	depthFrameBuffer = new QGLFramebufferObject(QSize(640, 480), QGLFramebufferObject::Depth, GL_TEXTURE_2D, GL_R32F);
 }
 
 void glWidget::computeQuadVertices() {
@@ -166,6 +174,9 @@ void glWidget::computeQuadVertices() {
 // DRAW
 
 void glWidget::paintGL() {
+	qglClearColor(QColor(50, 0, 160));
+
+	//glDisable(GL_CULL_FACE);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	painting = true;
@@ -369,8 +380,86 @@ void glWidget::drawMesh() {
 
 // FRAMEBUFFER RENDERING
 
-bool glWidget::render(QMatrix4x4 pose, iparams params, std::vector<float>& depth) {
-	return false; // TODO
+void glWidget::render(QMatrix4x4 pose, iparams ip) {
+	if (!initialized) {
+		emit renderFinished(false, std::vector<float>());
+		return;
+	}
+
+	if (depthFrameBuffer->width() != ip.width || depthFrameBuffer->height() != ip.height) {
+		printf("gl: Remake framebuffer %dx%d\n", ip.width, ip.height);
+		delete depthFrameBuffer;
+		depthFrameBuffer = new QGLFramebufferObject(QSize(ip.width, ip.height), QGLFramebufferObject::Depth, GL_TEXTURE_2D, GL_R32F);
+	}
+
+
+	depthFrameBuffer->bind();
+	glViewport(0, 0, ip.width, ip.height);
+	qglClearColor(QColor(0, 0, 0));
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	//glDisable(GL_BLEND);
+	glDepthMask(GL_TRUE);
+
+	glPointSize(1.0f);
+	QMatrix4x4 vdMatrix;
+	vdMatrix.lookAt(QVector3D(-0, -0, -0.0f), QVector3D(-0, -0, 1), QVector3D(0, 1, 0));
+
+	QMatrix4x4 pdMatrix;
+	float fov_r = 2 * atan(ip.height / (float)(2.0f * ip.fy));
+	float fov_d = fov_r * 180.0f / 3.1415926535f;
+	pdMatrix.perspective(fov_d, (float)ip.width / (float)ip.height, 0.1f, 5.f);
+
+	QMatrix4x4 CoordM;
+	CoordM(0, 0) = -1;
+	CoordM(1, 1) = -1;
+
+	//glDisable(GL_CULL_FACE);
+	glEnable(GL_CULL_FACE);
+
+	depthProgram.bind();
+
+	meshBuffer.bind();
+	meshindBuffer.bind();
+
+	mMatrix = QMatrix4x4();
+	mMatrix = pose.inverted();
+
+	depthProgram.setUniformValue("pMatrix", pdMatrix);
+	depthProgram.setUniformValue("vmMatrix", vdMatrix * CoordM * mMatrix);
+	depthProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
+	depthProgram.enableAttributeArray("vertex");
+	glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
+	depthProgram.disableAttributeArray("vertex");
+
+	meshindBuffer.release();
+	meshBuffer.release();
+
+	depthProgram.release();
+
+	//glEnable(GL_CULL_FACE);
+
+
+	float* pixels = new float[ip.width*ip.height];
+	memset(pixels, 0, ip.width*ip.height * sizeof(float));
+
+	glBindTexture(GL_TEXTURE_2D, depthFrameBuffer->texture());
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, pixels);
+	printGlError(glGetError());
+
+	glPointSize(2.0f);
+	depthFrameBuffer->release();
+
+	glViewport(0, 0, this->width(), this->height());
+	glDisable(GL_CULL_FACE);
+
+	std::vector<float> dpt; dpt.resize(ip.width*ip.height);
+	for (int y = 0; y < ip.height; ++y)
+		for (int x = 0; x < ip.width; ++x)
+			dpt[y*ip.width + x] = -pixels[((ip.height - 1 - y)*ip.width + x)];
+	delete[] pixels;
+
+	emit renderFinished(true, dpt);
 }
 
 // MOUSE
@@ -568,8 +657,8 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 
 			int i0 = t.p[0], i1 = t.p[1], i2 = t.p[2];
 			mesh_inds.push_back(i0);
-			mesh_inds.push_back(i2);
 			mesh_inds.push_back(i1);
+			mesh_inds.push_back(i2);
 			if (!has_color) {
 				float nx, ny, nz;
 				cross(mesh_points[i0], mesh_points[i1], mesh_points[i2], nx, ny, nz);

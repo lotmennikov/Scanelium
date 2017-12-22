@@ -6,7 +6,7 @@
 
 #include "utils.h"
 
-Controller::Controller(Renderer* rnd) : QObject(NULL) {
+Controller::Controller() : QObject(NULL) {
 	_state = NONE;
 
 	_cam_set.color_res = ColorResolution::COLOR_VGA;
@@ -52,12 +52,14 @@ Controller::Controller(Renderer* rnd) : QObject(NULL) {
 	connect(_rc, &Reconstructor::message, this, &Controller::recMessage);
 	connect(_rc, &Reconstructor::diffUpdate, this, &Controller::poseDiffUpdate);
 
-	_cm = new ColorMapper(rnd);
+	_cm = new ColorMapper();
 	connect(this, &Controller::colormapStart, _cm, &ColorMapper::start);
 	connect(_cm, &ColorMapper::refreshResidualError, this, &Controller::colormapErrorUpdate);
 	connect(_cm, &ColorMapper::message, this, &Controller::colormapMessage);
 	connect(_cm, &ColorMapper::error, this, &Controller::errorBox);
 	connect(_cm, &ColorMapper::finished, this, &Controller::colormapFinished);
+	connect(_cm, &ColorMapper::renderRequest, this, &Controller::renderRequest);
+	connect(this, &Controller::renderFinished, _cm, &ColorMapper::renderFinished);
 }
 
 void Controller::init() {
@@ -472,6 +474,10 @@ void Controller::colormapFinished(bool ok) {
 	}
 	emit showSoftStopColormap(false);
 	emit showProgress(false, 0);
+}
+
+void Controller::renderFinished(bool res, std::vector<float> dpt) {
+	_cm->renderFinished(res, dpt);
 }
 
 // ================

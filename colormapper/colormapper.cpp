@@ -2,6 +2,7 @@
 #include <fstream>
 #include <Windows.h>
 #include <thread>
+#include "utils.h"
 
 using namespace std;
 
@@ -18,14 +19,13 @@ void callZhk(ColorMapper* cm) {
 	cm->mapColorsZhouKoltun();
 }
 
-ColorMapper::ColorMapper(Renderer* rnd) : QObject(NULL) 
+ColorMapper::ColorMapper() : QObject(NULL) 
 {
 	iteration_count = 1;
 	_started = false;
 	_stop = false;
 	camerathreads_num = 4;
 
-	renderer = rnd;
 	zhk_thread = NULL;
 	mesh_vertices = NULL;
 	mesh_triangles = NULL;
@@ -316,6 +316,31 @@ ColorMapper::mapColorsZhouKoltun() {
 		
 	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 	{
+		std::vector<float> dpt_render;
+
+		render_return = false;
+		emit renderRequest(toQtPose(_cameras[current_cam]->pose.rotation(), _cameras[current_cam]->pose.translation()), color_iparams);
+
+		while (true) {
+			render_mutex.lock();
+			if (render_return) break;
+			render_mutex.unlock();
+			Sleep(1);
+		}
+		render_mutex.unlock();
+		if (false) { // save rendering
+			uchar* img_bits = new uchar[color_iparams.width*color_iparams.height * 3];
+			for (int i = 0; i < color_iparams.width*color_iparams.height; ++i) {
+				img_bits[3 * i + 0] = render_result[i] / 2.0f * 255;
+				img_bits[3 * i + 1] = render_result[i] / 2.0f * 255;
+				img_bits[3 * i + 2] = render_result[i] / 2.0f * 255;
+			}
+			QImage img = QImage(img_bits, color_iparams.width, color_iparams.height, QImage::Format_RGB888).copy();
+			img.save("test_render.png");
+			delete[] img_bits;
+		}
+
+
 		Eigen::Matrix4d* Mtcam = new Eigen::Matrix4d(_cameras[current_cam]->pose.matrix().cast<double>()); *Mtcam = Mtcam->inverse();
 		TransM.push_back(Mtcam);
 		camera_point_inds[current_cam] = new vector<point_bw>();
@@ -661,7 +686,6 @@ void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, Camer
 				thread->cam = _cameras[currentcam];
 				thread->TransM = TransM[currentcam];
 				thread->currentcam = currentcam;
-				thread->renderer = renderer;
 
 				if (task == PREPROCESS) {
 					thread->mesh_vertices = mesh_vertices;
@@ -734,7 +758,7 @@ ColorMapper::cameraTaskFinished(int camera, int thread, bool success) {
 	}
 	if (camera_threads[thread]->isRunning()) {
         while (!camera_threads[thread]->isFinished()) {}
-			Sleep(50);
+			Sleep(5);
 	}
 	free_threads.push(thread);
 	processed_count++;
@@ -745,4 +769,12 @@ void
 ColorMapper::cameraTaskError(int thread, string msg) {
 	hardStop();
 	emit error("Colormapper: cameraTask", QString::fromStdString(msg));
+}
+
+void
+ColorMapper::renderFinished(bool res, vector<float> dpt) {
+	render_mutex.lock();
+	render_result = dpt;
+	render_return = true;
+	render_mutex.unlock();
 }

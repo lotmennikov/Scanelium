@@ -49,7 +49,7 @@ private:
 	void setState(ProgramState);
 public:
 	// in: renderer for colormapper
-	Controller(Renderer* renderer);
+	Controller();
 	~Controller();
 
 	// prepare camera and threads
@@ -121,6 +121,7 @@ public slots:
 // colormap slots
 	void colormapMessage(QString msg, int progress);
 	void colormapFinished(bool);
+	void renderFinished(bool res, std::vector<float> render);
 
 signals:
 	// ONI
@@ -133,6 +134,7 @@ signals:
 
 	// COLORMAP
 	void colormapStart();
+	void renderRequest(QMatrix4x4 pose, iparams ip);
 
 	// UI
 	void askConfirmation(int index, int);

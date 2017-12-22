@@ -8,5 +8,7 @@
         <file>shader/simpleVertexShader.vsh</file>
         <file>shader/textureFragmentShader.fsh</file>
         <file>shader/textureVertexShader.vsh</file>
+        <file>shader/depth.fsh</file>
+        <file>shader/depth.vsh</file>
     </qresource>
 </RCC>

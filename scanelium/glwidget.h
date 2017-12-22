@@ -19,7 +19,6 @@
 
 #include "structs.h"
 #include "model.h"
-#include "renderer.h"
 
 typedef struct {
 	float vertex[3];
@@ -28,7 +27,7 @@ typedef struct {
 
 typedef color_vertex cn_vertex;
 
-class glWidget : public QGLWidget, protected QOpenGLFunctions, public Renderer
+class glWidget : public QGLWidget, protected QOpenGLFunctions
 {
 	Q_OBJECT
 private:
@@ -43,7 +42,9 @@ private:
     QGLShaderProgram lineProgram;
 	QGLShaderProgram normalProgram;
 	QGLShaderProgram colorProgram;
+	QGLShaderProgram depthProgram;
 
+	QGLFramebufferObject* depthFrameBuffer;
 // Buffers
 	QOpenGLBuffer gridBuffer;
 	QOpenGLBuffer indBuffer;
@@ -113,11 +114,8 @@ public:
     void mouseReleaseEvent(QMouseEvent *);
     void wheelEvent(QWheelEvent *);
 
-
-// renderer
-	bool render(QMatrix4x4 pose, iparams params, std::vector<float>& depth);
-
 signals:
+	void renderFinished(bool res, std::vector<float> dpt);
 
 public slots :
 	void stateChanged(ProgramState);
@@ -127,6 +125,9 @@ public slots :
 	void setPolygonMesh(Model::Ptr);
 
 	void newCameraPose(QMatrix4x4);
+
+	// renderer
+	void render(QMatrix4x4 pose, iparams params);
 };
 
 #endif // GLWIDGET_H_LOT
