@@ -137,7 +137,7 @@ average_color computeColor(QImage* img, float pix_x,float pix_y) {
 	}
 }
 
-float compute_value(float** img, float x, float y, iparams ip) {
+float compute_value(float* img, float x, float y, iparams ip) {
 	float result = 0.0f;
 	if (x < 0 || y < 0 || x > ip.width - 1 || y > ip.height - 1)
 		return 0;
@@ -147,139 +147,13 @@ float compute_value(float** img, float x, float y, iparams ip) {
 	if (floor(x) + 1 < ip.width && floor(y) + 1 < ip.height) {				
 		average_grey avg;
 					
-		result += img[(int)floor(x+eps)  ][(int)floor(y+eps)  ] * (1.0f - difx) * (1.0f - dify);
-		result += img[(int)floor(x+eps)+1][(int)floor(y+eps)  ] * (       difx) * (1.0f - dify);
-		result += img[(int)floor(x+eps)  ][(int)floor(y+eps)+1] * (1.0f - difx) * (       dify);
-		result += img[(int)floor(x+eps)+1][(int)floor(y+eps)+1] * (       difx) * (       dify);
+		result += img[((int)floor(x+eps)  )+ip.width*((int)floor(y+eps)  )] * (1.0f - difx) * (1.0f - dify);
+		result += img[((int)floor(x+eps)+1)+ip.width*((int)floor(y+eps)  )] * (       difx) * (1.0f - dify);
+		result += img[((int)floor(x+eps)  )+ip.width*((int)floor(y+eps)+1)] * (1.0f - difx) * (       dify);
+		result += img[((int)floor(x+eps)+1)+ip.width*((int)floor(y+eps)+1)] * (       difx) * (       dify);
 					
 		return result;
 	} else {
-		return img[(int)floor(x)][(int)floor(y)];
+		return img[((int)floor(x))+ip.width*((int)floor(y))];
 	}
-}
-
-// FROM COLORMAPPER
-
-bool
-mapUVtoDepth(const Eigen::Vector2f &uv, unsigned short* depth_buffer, CameraParams cp) {
-	if (uv.x() >= 5 && uv.x() <= cp.color_width - 6 && uv.y() >= 5 && uv.y() <= cp.color_height - 6) {
-		float kofw = cp.depth_width / cp.color_width;
-		float kofh = cp.depth_width / cp.color_width;
-		int x = uv.x()* kofw;
-		int y = (cp.camera_ratio_diff ? (uv.y() - (cp.color_height - cp.depth_height / kofw) / 2)*kofw : uv.y() * kofh);
-
-		//cout << uv.x() <<' '<< uv.y() <<' ' << x << ' ' << y << endl;
-
-		if (x >= 0 && y >= 0 && x < cp.depth_width && y < cp.depth_height) {
-			unsigned short val = depth_buffer[y*(int)cp.depth_width + x];
-			if (val == 0) return false;
-			else return true;
-
-		}
-		else return false;
-
-	}
-	else return false;
-}
-
-void
-computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams) {
-	float ** bw = filterBWdepth(dbuffer, camparams.depth_width, camparams.depth_height);
-	float ** conv_depth = filterArrayScharr(bw, camparams.depth_width, camparams.depth_height);
-
-	int delta = 3;
-
-	for (int i = 0; i < camparams.depth_width; ++i) delete[] bw[i];
-	delete[] bw;
-
-	// TEST
-	//	uchar *img = new uchar[(int)camparams.depth_width*(int)camparams.depth_height*3];
-
-	std::queue<int> q_nulls;
-	for (int i = 0; i < camparams.depth_width*camparams.depth_height; ++i) {
-
-		// Test		
-		/*		int val = min(1.0f,16.0f*conv_depth[i % (int)camparams.depth_width][i / (int)camparams.depth_width]) * 255.0f;
-		img[i*3  ]=val;
-		img[i*3+1]=val;
-		img[i*3+2]=val;*/
-
-		if (16.0f*conv_depth[i % (int)camparams.depth_width][i / (int)camparams.depth_width] >= 0.5f)
-			dbuffer[i] = 0;
-
-		if (dbuffer[i] == 0)
-			q_nulls.push(i);
-	}
-
-	// Test
-	//	QImage ni = QImage(img, camparams.depth_width, camparams.depth_height, QImage::Format_RGB888);
-	//	ni.save(QString("test-depth.png"));
-
-	while (!q_nulls.empty()) {
-		int ind = q_nulls.front();
-		q_nulls.pop();
-
-		int x = ind % (int)camparams.depth_width;
-		int y = ind / (int)camparams.depth_width;
-		for (int i = -delta; i <= delta; ++i)
-			for (int j = -delta; j <= delta; ++j) {
-				if (sqrt((float)i*i + (float)j*j) <= delta &&  x + i >= 0 && x + i <= camparams.depth_width - 1 && y + j >= 0 && y + j <= camparams.depth_height - 1)
-					dbuffer[(x + i) + (y + j)*(int)camparams.depth_width] = 0;
-			}
-	}
-
-	for (int i = 0; i < camparams.depth_width; ++i) delete[] conv_depth[i];
-	delete[] conv_depth;
-
-	// TEST
-	/*	conv_depth = filterBWdepth(dbuffer, camparams.depth_width, camparams.depth_height);
-	for (int i = 0; i < camparams.depth_width*camparams.depth_height; ++i) {
-	int val = min(1.0f,conv_depth[i % (int)camparams.depth_width][i / (int)camparams.depth_width]) * 255.0f;
-	img[i*3  ]=val;
-	img[i*3+1]=val;
-	img[i*3+2]=val;
-	}
-	QImage ni2 = QImage(img, camparams.depth_width, camparams.depth_height, QImage::Format_RGB888);
-	ni2.save(QString("test-depth2.png"));
-	for (int i = 0; i < camparams.depth_width; ++i) delete [] conv_depth[i];
-	delete [] conv_depth;*/
-}
-
-void
-getTriangleCircumcscribedCircleCentroid(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, Eigen::Vector2f &circumcenter, double &radius)
-{
-	// compute centroid's coordinates (translate back to original coordinates)
-	circumcenter.x() = static_cast<float> (p1.x() + p2.x() + p3.x()) / 3;
-	circumcenter.y() = static_cast<float> (p1.y() + p2.y() + p3.y()) / 3;
-	double r1 = (circumcenter.x() - p1.x()) * (circumcenter.x() - p1.x()) + (circumcenter.y() - p1.y()) * (circumcenter.y() - p1.y());
-	double r2 = (circumcenter.x() - p2.x()) * (circumcenter.x() - p2.x()) + (circumcenter.y() - p2.y()) * (circumcenter.y() - p2.y());
-	double r3 = (circumcenter.x() - p3.x()) * (circumcenter.x() - p3.x()) + (circumcenter.y() - p3.y()) * (circumcenter.y() - p3.y());
-
-	// radius
-	radius = std::sqrt(std::max(r1, std::max(r2, r3)));
-}
-
-bool
-checkPointInsideTriangle(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, const Eigen::Vector2f &pt)
-{
-	// Compute vectors
-	Eigen::Vector2d v0, v1, v2;
-	v0(0) = p3.x() - p1.x(); v0(1) = p3.y() - p1.y(); // v0= C - A
-	v1(0) = p2.x() - p1.x(); v1(1) = p2.y() - p1.y(); // v1= B - A
-	v2(0) = pt.x() - p1.x(); v2(1) = pt.y() - p1.y(); // v2= P - A
-
-	// Compute dot products
-	double dot00 = v0.dot(v0); // dot00 = dot(v0, v0)
-	double dot01 = v0.dot(v1); // dot01 = dot(v0, v1)
-	double dot02 = v0.dot(v2); // dot02 = dot(v0, v2)
-	double dot11 = v1.dot(v1); // dot11 = dot(v1, v1)
-	double dot12 = v1.dot(v2); // dot12 = dot(v1, v2)
-
-							   // Compute barycentric coordinates
-	double invDenom = 1.0 / (dot00*dot11 - dot01*dot01);
-	double u = (dot11*dot02 - dot01*dot12) * invDenom;
-	double v = (dot00*dot12 - dot01*dot02) * invDenom;
-
-	// Check if point is in triangle
-	return ((u >= 0) && (v >= 0) && (u + v < 1));
 }

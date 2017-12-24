@@ -1,15 +1,9 @@
 #include "camerathread.h"
 #include "colormapper.h"
 
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/common/transforms.h>
-#include <pcl/kdtree/kdtree_flann.h>
-
 QMutex CameraThread::ident_mutex;
 
 using namespace Eigen;
-using namespace pcl;
 using namespace std;
 
 void CameraThread::run() {
@@ -37,8 +31,6 @@ void CameraThread::computedx() {
 
 // Vector - C(p) - mx1
 	try {
-//		cout << threadId << " init" << endl;
-
 		Eigen::VectorXd res = VectorXd::Zero(camera_point_inds->size());            // residuals
 
 		//ident_mutex.lock(); locked = true; 
@@ -51,8 +43,6 @@ void CameraThread::computedx() {
 		Matrix<double, 2, 2> JFu;
 		Matrix<double, 2, 4> Jug;                             // Jacobian u(g)
 		Matrix<double, 4, 6> Jge;                             // Jacobian g(e) (e == dx)
-
-//		cout << threadId << " points" << endl;
 
 		vector<point_bw>::iterator it = camera_point_inds->begin();
 		for (int ipoint = 0; it != camera_point_inds->end(); ++ipoint, it++) {
@@ -70,15 +60,15 @@ void CameraThread::computedx() {
 				
 		
 	// * compute Jge  \/ g(e(al, be, ga, a, b, c))
-				Jge = getJge(pnt, *TransM);
+				Jge = getJge(pnt, camdata->TransM);
 
 	// * compute Jug  \/
-				Eigen::Vector4d initG = Gfunc(pnt, *TransM);
+				Eigen::Vector4d initG = Gfunc(pnt, camdata->TransM);
 
-				Jug = getJug(initG, cip);
+				Jug = getJug(initG, camdata->ip);
 
 	// * compute JFu  \/
-				Eigen::Vector2d initU = Ufunc(initG, cip); // checked projection
+				Eigen::Vector2d initU = Ufunc(initG, camdata->ip); // checked projection
 
 				JFu = getJFu(initU, *x, aparam); // 0 if bad projection
 
@@ -87,8 +77,8 @@ void CameraThread::computedx() {
 
 				double step = 1;
 				if (initF(0) >= 0 && initF(1) >= 0) {
-					Gru(0, 0) = -compute_value(scharrx, initF(0), initF(1), cip);
-					Gru(0, 1) = -compute_value(scharry, initF(0), initF(1), cip);
+					Gru(0, 0) = -compute_value(camdata->scharrx, initF(0), initF(1), camdata->ip);
+					Gru(0, 1) = -compute_value(camdata->scharry, initF(0), initF(1), camdata->ip);
 				} else {
 					Gru(0,0) = Gru(0,1) = 0;
 					res(ipoint) = 0;
@@ -128,35 +118,29 @@ void CameraThread::computedx() {
 	// * solve (JrT*Jr)*dx = (-JrT*r)
 
 		//ident_mutex.lock(); locked = true;
-		cout << threadId << " solving >";
-	//	cout << threadId << " matrix A" << endl;
+		cout << "<" << threadId << "s>" << endl;
 		SparseMatrix<double>* A = new SparseMatrix<double>(JrTs*JrTs.transpose());
 		(*A) = (*A) + (*ColorMapper::bigIdentity);
 
-	//	cout << threadId << " matrix B" << endl;
 		MatrixXd B = -(JrTs*res);		
-	//	cout << threadId << " cholesky" << endl;
 		Eigen::SimplicialCholesky< SparseMatrix<double> > *chol = new SimplicialCholesky< SparseMatrix<double> >(*A);
 
-		// * Finally solve the system
+	// * Finally solve the system
 		VectorXd dx = chol->solve(B);
-
 
 		delete chol;
 		delete A;
-		cout << "<" << endl;
-		
+		cout << "</" << threadId << "s>" << endl;
 		
 		//locked = false; ident_mutex.unlock();
 
-		// COMPUTE NEW BW
+	// COMPUTE NEW BW
 		*x += dx;
-		
-		//Matrix4d transf = eTrotation(*x, *TransM);
-		*TransM = eTrotation(dx, *TransM);
-		Matrix4d transf = *TransM;
+		for (int i = 0; i < 6; ++i) (*x)(i) = 0; // transformation is updated independently
 
-		for (int i = 0; i < 6; ++i) (*x)(i) = 0;
+		camdata->TransM = eTrotation(dx, camdata->TransM);
+		Matrix4d transf = camdata->TransM;
+
 
 		it = camera_point_inds->begin();
 		for (;it != camera_point_inds->end(); it++) {
@@ -167,17 +151,16 @@ void CameraThread::computedx() {
 			pnt(3) = 1;
 
 			Vector4d initG = Gfunc(pnt, transf);
-			Vector2d initU = Ufunc(initG, cip);
+			Vector2d initU = Ufunc(initG, camdata->ip);
 			Vector2d initF = Ffunc(initU, *x, aparam);
-			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1)  {
-				it->bw = compute_value(bw, initF(0), initF(1), cip);
+			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= camdata->ip.width - 1 && initF(1) <= camdata->ip.height - 1)  {
+				it->bw = compute_value(camdata->bw, initF(0), initF(1), camdata->ip);
 			} else {
 				//	cout << "Bad coordinates : " << initU << endl;
 				it->bw = -1;
 				//	system("pause");
 			}		
 		}
-	//	cout << currentcam << ' ';
 	} catch (const std::exception& ex) {
 		cout << "Thread "<< threadId << " exception " << ex.what() << endl;
 		if 	(locked)
@@ -199,181 +182,103 @@ void CameraThread::computedx() {
 	}
 }
 
-inline Eigen::Vector2f p2_to_v2e(const pcl::PointXY& p) {
-	return Eigen::Vector2f(p.x, p.y);
+inline float interp(float* data, float ux, float uy, iparams ip) {
+	float ux_l = floorf(ux);
+	float uy_l = floorf(uy);
+	float ux_m = ux_l + 1.0f;
+	float uy_m = uy_l + 1.0f;
+
+	if (ux_m > ip.width - 1 || uy_m > ip.height - 1)
+		return data[(int)(uy_l*ip.width + ux_l)];
+
+	float val00 = data[(int)(uy_l*ip.width + ux_l)];
+	float val01 = data[(int)(uy_m*ip.width + ux_l)];
+	float val10 = data[(int)(uy_l*ip.width + ux_m)];
+	float val11 = data[(int)(uy_m*ip.width + ux_m)];
+
+	return
+		val00 * (ux_m - ux) * (uy_m - uy) +
+		val01 * (ux_m - ux) * (uy - uy_l) +
+		val10 * (ux - ux_l) * (uy_m - uy) +
+		val11 * (ux - ux_l) * (uy - uy_l);
 }
 
-inline pcl::PointXY v2e_to_p2(const Eigen::Vector2f& v) {
-	pcl::PointXY p; p.x = v.x(); p.y = v.y();
-	return p;
-}
+inline void computeProjections(Matrix4d cam_pose_inv, vector<Model::PointXYZ>* mesh_vertices, int num_points, vector<Vector2d>& projections, vector<bool>& visible, float* depth, iparams cip) {
+	Vector2d nan_point(nan(""), nan(""));
+	Vector2d proj;
 
-// TODO replace with simple OpenGL rendering
-inline void kdtree_visibility_check(pcl::PointCloud<pcl::PointXY>::Ptr projections, std::vector<Model::Triangle>* mesh_triangles, const vector<float>& camera_z) {
-	std::vector<bool> visibility;
-	visibility.resize(mesh_triangles->size());
+	float camera_z;
 
-	pcl::PointXY nan_point;
-	nan_point.x = -1.0;
-	nan_point.y = -1.0;
+	int ind = 0;
+	for (; ind < num_points; ++ind) {
+		Model::PointXYZ mp = mesh_vertices->at(ind);
+		Vector4d p = Vector4d(mp.x, mp.y, mp.z, 1.0f);
+		Vector4d p_cam;
 
-	// removing completely unseen faces
-	int cpt_invisible = 0;
-	auto it = mesh_triangles->begin();
-	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
-	{
-		if (projections->points[it->p[0]].x >= 0.0 &&
-			projections->points[it->p[1]].x >= 0.0 &&
-			projections->points[it->p[2]].x >= 0.0)
-		{
-			visibility[idx_face] = true;
+		p_cam = Gfunc(p, cam_pose_inv);
+		proj = Ufunc(p_cam, cip);
+
+
+		camera_z = p_cam.z();
+
+		if (isnan(proj.x())) {
+			projections[ind] = nan_point;
+			visible[ind] = false;
 		}
 		else {
-			visibility[idx_face] = false;
-			cpt_invisible++;
+			projections[ind] = proj;
+
+			int ux = (int)roundf(proj.x());
+			int uy = (int)roundf(proj.y());
+			float depth_rendered = interp(depth, proj.x(), proj.y(), cip);//camdata->render[uy*cip.width + ux];
+			float diff = camera_z - depth_rendered;
+
+			if (diff < 0.001f)
+				visible[ind] = true;
+			else
+				visible[ind] = false;
 		}
 	}
-
-	if (visibility.size() - cpt_invisible != 0)
-	{
-		//create kdtree
-		pcl::KdTreeFLANN<pcl::PointXY> kdtree;
-		kdtree.setInputCloud(projections);
-
-		std::vector<int> idxNeighbors;
-		std::vector<float> neighborsSquaredDistance;
-		// project all faces
-		it = mesh_triangles->begin();
-		for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face)
-		{
-
-			if (!visibility[idx_face])
-			{
-				// no need to check
-				continue;
-			}
-
-			pcl::PointXY uv_coord1 = projections->points[it->p[0]];
-			pcl::PointXY uv_coord2 = projections->points[it->p[1]];
-			pcl::PointXY uv_coord3 = projections->points[it->p[2]];
-
-			if (uv_coord1.x >= 0.0 && uv_coord2.x >= 0.0 && uv_coord3.x >= 0.0)
-			{
-				//face is in the camera's FOV
-				//get its circumsribed circle
-				double radius;
-				pcl::PointXY center;
-				// getTriangleCircumcenterAndSize (uv_coord1, uv_coord2, uv_coord3, center, radius);
-				if ((uv_coord1.x == uv_coord2.x && uv_coord1.y == uv_coord2.y) &&
-					(uv_coord2.x == uv_coord3.x && uv_coord2.y == uv_coord3.y)) {
-					center = uv_coord1;
-					radius = 0.00001;
-				}
-				else {
-					Eigen::Vector2f ecenter;
-					getTriangleCircumcscribedCircleCentroid(p2_to_v2e(uv_coord1), p2_to_v2e(uv_coord2), p2_to_v2e(uv_coord3), ecenter, radius); // this function yields faster results than getTriangleCircumcenterAndSize
-					center = v2e_to_p2(ecenter);
-				}
-				// get points inside circ.circle
-				if (kdtree.radiusSearch(center, radius, idxNeighbors, neighborsSquaredDistance) > 0)
-				{
-					// for each neighbor
-					for (size_t i = 0; i < idxNeighbors.size(); ++i)
-					{
-						if (std::max(camera_z[it->p[0]],
-							std::max(camera_z[it->p[1]],
-								camera_z[it->p[2]]))
-							< camera_z[idxNeighbors[i]])
-						{
-							// neighbor is farther than all the face's points. Check if it falls into the triangle
-							if (checkPointInsideTriangle(p2_to_v2e(uv_coord1), p2_to_v2e(uv_coord2), p2_to_v2e(uv_coord3), p2_to_v2e(projections->points[idxNeighbors[i]])))
-							{
-								projections->points[idxNeighbors[i]] = nan_point;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	// end' occluding
 }
 
 void CameraThread::postProcessCamera() {
+	iparams cip = camdata->ip;
 
-	// transform mesh into camera's frame
+	vector<Vector2d> projections(processing_points_size);
+	vector<bool> visible_render(processing_points_size);
 
-	pcl::PointCloud<pcl::PointXY>::Ptr projections(new pcl::PointCloud<pcl::PointXY>);
-	projections->points.resize(processing_points_size); // old size //cloud->points.size()); 
+	Matrix4d cam_pose_inv = camdata->TransM;
+	computeProjections(cam_pose_inv, mesh_vertices, processing_points_size, projections, visible_render, camdata->render, camdata->ip);
 
-	Matrix4d transf = *TransM;
-
-	pcl::PointXY nan_point;
-	nan_point.x = -1.0;
-	nan_point.y = -1.0;
-
-	{
-		vector<float> camera_z(mesh_vertices->size()); // new size
-
-		auto itp = mesh_vertices->begin();
-		auto ip = projections->points.begin();
-		for (int ind = 0; ind < processing_points_size; ++ip, ++itp, ++ind) { // itp != cloud->points.end()
-
-			Vector4d pnt;
-			pnt(0) = itp->x;
-			pnt(1) = itp->y;
-			pnt(2) = itp->z;
-			pnt(3) = 1;
-
-			Vector4d initG = Gfunc(pnt, transf);
-			Vector2d initU = Ufunc(initG, cip);
-			Vector2d initF = Ffunc(initU, *x, aparam);
-
-			camera_z[ind] = initG(2);
-
-			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1) {
-				ip->x = initF(0);
-				ip->y = initF(1);
-			} else {
-				(*ip) = nan_point;
-			}
-		}
-
-		kdtree_visibility_check(projections, mesh_triangles, camera_z);
-	}
-// adding color to each point
+	Matrix4d cam_pose = cam_pose_inv.inverse();
 	normal camera;
-	Matrix4d pose_corr = TransM->inverse();
-	camera.x = pose_corr(0, 3);
-	camera.y = pose_corr(1, 3);
-	camera.z = pose_corr(2, 3);
-
+	camera.x = cam_pose(0, 3);
+	camera.y = cam_pose(1, 3);
+	camera.z = cam_pose(2, 3);
 
 //increasing vertex count
+	Vector2d nan_point(nan(""), nan(""));
+
 	if (mesh_vertices->size() > processing_points_size) {
-		projections->points.resize(mesh_vertices->size());
-		
+		projections.resize(mesh_vertices->size());
+		visible_render.resize(mesh_vertices->size());
 		auto itp = mesh_vertices->begin() + processing_points_size;
-		auto ip = projections->points.begin() + processing_points_size;
+		auto ip = projections.begin() + processing_points_size;
 		auto ep = edge_points->begin();
 		for (int ind = processing_points_size; itp != mesh_vertices->end(); ++ip, ++itp, ++ind, ++ep) {
-			if (projections->points[ep->first].x >= 0 && projections->points[ep->second].x >= 0) {
-				Vector4d pnt;
-				pnt(0) = itp->x;
-				pnt(1) = itp->y;
-				pnt(2) = itp->z;
-				pnt(3) = 1;
+			if (visible_render[ep->first] && visible_render[ep->second]) {
+				Vector4d pnt(itp->x, itp->y, itp->z, 1);
 
-				Vector4d initG = Gfunc(pnt, transf);
-				Vector2d initU = Ufunc(initG, cip);
-				Vector2d initF = Ffunc(initU, *x, aparam);
-
-				if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= cip.width - 1 && initF(1) <= cip.height - 1) {
-					ip->x = initF(0);
-					ip->y = initF(1);
+				Vector4d gp = Gfunc(pnt, cam_pose_inv);
+				Vector2d proj = Ufunc(gp, cip);
+				
+				if (isnan(proj.x())) {
+					projections[ind] = nan_point;
+					visible_render[ind] = false;
 				}
 				else {
-					(*ip) = nan_point;
+					projections[ind] = proj;
+					visible_render[ind] = true;
 				}
 			} else (*ip) = nan_point;
 		}
@@ -382,79 +287,74 @@ void CameraThread::postProcessCamera() {
 
 	ident_mutex.lock(); // for safe avgcolors inc
 
-	auto ip = projections->points.begin();
-	for (int i = 0; ip != projections->points.end(); ++ip, ++i) { 
+// adding color to each point
+	//uchar* img_bits = new uchar[3 * cip.width*cip.height];
+	//memset(img_bits, 0, 3 * cip.width*cip.height * sizeof(uchar));
+	
+	auto ip = projections.begin();
+	for (int i = 0; ip != projections.end(); ++ip, ++i) { 
 
-		pcl::PointXY uv_coord1 = (*ip);
-		if (uv_coord1.x >= 5.0 && uv_coord1.x <= cp.color_width - 6.0 &&
-			uv_coord1.y >= 5.0 && uv_coord1.y <= cp.color_height - 6.0) {
+		Vector2d u = (*ip);
+		if (visible_render[i]) {
+			float dpt_weight = interp(camdata->dpt_weights, u.x(), u.y(), cip);
+			Vector2d uf = Ffunc(u, *x, aparam);
 
-			normal tocam;
-			tocam.x = camera.x- mesh_vertices->operator[](i).x;
-			tocam.y = camera.y- mesh_vertices->operator[](i).y;
-			tocam.z = camera.z- mesh_vertices->operator[](i).z;
+			if (uf.x() >= 5.0 && uf.x() <= cip.width - 6.0 &&
+				uf.y() >= 5.0 && uf.y() <= cip.height - 6.0) {
 
-			normal pointnormal = ColorMapper::point_normals[i];
-			
-			float weight = (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen());
-			
-			weight /= tocam.getLen()*tocam.getLen();
+				normal tocam;
+				tocam.x = camera.x - mesh_vertices->operator[](i).x;
+				tocam.y = camera.y - mesh_vertices->operator[](i).y;
+				tocam.z = camera.z - mesh_vertices->operator[](i).z;
 
-			if (!mapUVtoDepth(p2_to_v2e(uv_coord1), &cam->depth[0], cp))
-				weight *= 0.001;
+				normal pointnormal = ColorMapper::point_normals[i];
 
-			if (weight > 0) {
-				average_color clr = computeColor(&cam->img, uv_coord1.x, uv_coord1.y);
-				ColorMapper::avgcolors[i].addRGBFunc(clr.r, clr.g, clr.b, weight);
+				float weight = max(0.0f, (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen()));
+
+				weight /= tocam.getLen()*tocam.getLen();
+
+				if (dpt_weight < 0.001f) dpt_weight = 0.001f;
+				if (dpt_weight < 1.0f) dpt_weight = dpt_weight*dpt_weight*0.1f;
+
+				weight *= dpt_weight;
+
+				if (weight > 0) {
+					average_color clr = computeColor(&cam->img, uf.x(), uf.y());
+					ColorMapper::avgcolors[i].addRGBFunc(clr.r, clr.g, clr.b, weight);
+				}
+
+				// img
 			}
 
+			/*
+			int ux = (int)roundf(u.x());
+			int uy = (int)roundf(u.y());
+			img_bits[3 * (uy*cip.width + ux) + 0] = 255 * (1.0f - dpt_weight);
+			img_bits[3 * (uy*cip.width + ux) + 1] = 255 * visible_render[i] * (dpt_weight);
+			img_bits[3 * (uy*cip.width + ux) + 2] = 0;
+			*/
 		}
 	} // 'end add color
+
+	//QImage img_errdpt = QImage(img_bits, cip.width, cip.height, QImage::Format_RGB888).copy();
+	//img_errdpt.save(QString::fromStdString("img_errdpt" + to_string(this->currentcam) + ".png"));
+	//delete[] img_bits;
+
 	ident_mutex.unlock();
 }
 
 void CameraThread::preProcessCamera() {
+	iparams cip = camdata->ip;
 
-	pcl::PointCloud<pcl::PointXY>::Ptr projections (new pcl::PointCloud<pcl::PointXY>);
-	projections->points.resize(mesh_vertices->size());
+	vector<Vector2d> projections(mesh_vertices->size());
+	vector<bool> visible_render(mesh_vertices->size());
 
-	float width = cip.width;
-	float height = cip.height;
-
-	pcl::PointXY nan_point;
-	nan_point.x = -1.0;
-	nan_point.y = -1.0;
-
-	{
-		// transform mesh into camera's frame
-		//pcl::PointCloud<PointXYZ>::Ptr camera_cloud (new pcl::PointCloud<PointXYZ>);
-		//pcl::transformPointCloud (*cloud, *camera_cloud, cam->pose.inverse ());
-		vector<float> camera_z(mesh_vertices->size());
-
-		Matrix4d cam_pose_inv = *TransM;
-
-		Eigen::Vector2d proj;
-
-		int ind = 0;
-		for (auto it_m = mesh_vertices->begin(); it_m != mesh_vertices->end(); ++it_m, ++ind) {
-			Vector4d p(it_m->x, it_m->y, it_m->z, 1.0f);
-			Vector4d p_cam = cam_pose_inv*p;
-			camera_z[ind] = p_cam.z();
-
-			proj = Ufunc(p_cam, cip);
-			if (isnan(proj.x()))
-				projections->points[ind] = nan_point;
-			else {
-				projections->points[ind].x = proj.x(); 
-				projections->points[ind].y = proj.y();
-			}
-		}
+	Matrix4d cam_pose_inv = camdata->TransM;
+	computeProjections(cam_pose_inv, mesh_vertices, mesh_vertices->size(), projections, visible_render, camdata->render, camdata->ip);
 	   
-		kdtree_visibility_check(projections, mesh_triangles, camera_z);
-	}
 	// adding color to each point
 	normal camera;
-	Matrix4d pose_corr = TransM->inverse();
+	Matrix4d pose_corr = camdata->TransM.inverse();
 	camera.x = pose_corr(0,3);
 	camera.y = pose_corr(1,3);
 	camera.z = pose_corr(2,3);
@@ -465,14 +365,16 @@ void CameraThread::preProcessCamera() {
 	vector<point_bw> temp_points;
 	temp_points.reserve(mesh_vertices->size());
 
-	for (int i = 0; i < projections->points.size(); ++i) { 
+	uchar* img_bits = new uchar[3 * cip.width*cip.height];
+	memset(img_bits, 0, 3 * cip.width*cip.height * sizeof(uchar));
 
-		pcl::PointXY uv_coord1 = projections->points[i];
-		if (uv_coord1.x >= 8.0 && uv_coord1.x <= width - 9.0 &&
-			uv_coord1.y >= 8.0 && uv_coord1.y <= height - 9.0 &&
-			
-			mapUVtoDepth(p2_to_v2e(uv_coord1), &cam->depth[0], cp)) {
-			
+	for (int i = 0; i < projections.size(); ++i) { 
+
+		Vector2d u = projections[i];
+		if (u.x() >= 8.0 && u.x() <= cip.width - 9.0 &&
+			u.y() >= 8.0 && u.y() <= cip.height - 9.0 &&
+			visible_render[i]) {
+
 			normal tocam;
 			tocam.x = camera.x- mesh_vertices->operator[](i).x;
 			tocam.y = camera.y- mesh_vertices->operator[](i).y;
@@ -480,19 +382,31 @@ void CameraThread::preProcessCamera() {
 
 			normal pointnormal = ColorMapper::point_normals[i];
 			
-			float weight = (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen());
-			if (weight > 0.1) {
-				float val = compute_value(bw, uv_coord1.x, uv_coord1.y, cip);
+			float dpt_weight = interp(camdata->dpt_weights, u.x(), u.y(), cip);
+
+			float weight = max(0.0f, (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen()));
+			if (dpt_weight > 0.5 && weight > 0.1) {
+				float val = compute_value(camdata->bw, u.x(), u.y(), cip);
 				ColorMapper::comp_bw[i].addBW(val);
 
 				temp_points.push_back(point_bw(i, val, weight));
 			}
 
+			// img
+			int ux = (int)roundf(u.x());
+			int uy = (int)roundf(u.y());
+			img_bits[3 * (uy*cip.width + ux) + 0] = 255 * (1.0f - dpt_weight);
+			img_bits[3 * (uy*cip.width + ux) + 1] = 255 * visible_render[i] * (dpt_weight);
+			img_bits[3 * (uy*cip.width + ux) + 2] = 0;
 		}
 	} // 'end add color
 
+	//QImage img_errdpt = QImage(img_bits, cip.width, cip.height, QImage::Format_RGB888).copy();
+	//img_errdpt.save("img_errdpt.png");
+	delete[] img_bits;
+
 	camera_point_inds->resize(temp_points.size());
-	copy(temp_points.begin(), temp_points.end(), camera_point_inds->begin());
+	std::copy(temp_points.begin(), temp_points.end(), camera_point_inds->begin());
 
 	ident_mutex.unlock();
 }

@@ -30,7 +30,6 @@ public:
 	std::vector<unsigned short> depth;
 	Eigen::Affine3f pose;
 
-	bool depth_processed;
 	double blureness;
 	 
 	void computeBlureness();

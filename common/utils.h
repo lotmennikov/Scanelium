@@ -13,6 +13,14 @@ inline QMatrix4x4 toQtPose(Eigen::Matrix3f R, Eigen::Vector3f t) {
 	return qpose;
 }
 
+inline QMatrix4x4 toQtPose(Eigen::Matrix4f T) {
+	QMatrix4x4 qpose;
+	for (int j = 0; j < 9; ++j)
+		qpose(j / 3, j % 3) = T(j / 3, j % 3);
+	qpose(0, 3) = T(0, 3); 	qpose(1, 3) = T(1, 3); 	qpose(2, 3) = T(2, 3); 	qpose(3, 3) = 1;
+	return qpose;
+}
+
 inline QMatrix4x4 computeCamPose(rec_settings rs) {
 	QMatrix4x4 pose = QMatrix4x4();
 	switch (rs.camera_pose) {

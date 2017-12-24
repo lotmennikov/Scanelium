@@ -12,7 +12,6 @@
 #include "reconstructor.h"
 #include "onicapture.h"
 #include "colormapper.h"
-#include "camparam.h"
 
 class Controller : public QObject {
 	

@@ -12,4 +12,3 @@ Dependencies:
 * OpenNI2
 * Qt 5.1
 * Eigen 3
-* PCL (to be removed) + FLANN

@@ -305,7 +305,6 @@ bool ModelIO::openSCL2(QString filename, Model::Ptr& model) {
 		ifstream camfin;
 		camfin.open(frame_dpt.toStdString());
 		frame->depth = vector<unsigned short>(dheight*dwidth);
-		frame->depth_processed = false;
 		for (int j = 0; j < dwidth*dheight; ++j) {
 			unsigned short vv;
 			camfin >> frame->depth[j];

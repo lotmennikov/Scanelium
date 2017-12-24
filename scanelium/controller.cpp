@@ -59,7 +59,6 @@ Controller::Controller() : QObject(NULL) {
 	connect(_cm, &ColorMapper::error, this, &Controller::errorBox);
 	connect(_cm, &ColorMapper::finished, this, &Controller::colormapFinished);
 	connect(_cm, &ColorMapper::renderRequest, this, &Controller::renderRequest);
-	connect(this, &Controller::renderFinished, _cm, &ColorMapper::renderFinished);
 }
 
 void Controller::init() {

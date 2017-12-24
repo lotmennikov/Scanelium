@@ -10,7 +10,6 @@
 
 #include "structs.h"
 #include "frame.h"
-#include "camparam.h"
 #include "algoparams.h"
 #include "algofuncs.h"
 #include "model.h"
@@ -27,15 +26,11 @@ class CameraThread : public QThread
 public:
 	int threadId;
 	CameraTask task;
-	CameraParams cp;
 	AlgoParams aparam;
-	iparams cip;
 // in algorithm
 	int currentcam;
-	Eigen::Matrix4d* TransM;
-	float** scharrx;
-	float** scharry;
-	float** bw;
+	img_data* camdata;
+
 	Eigen::VectorXd* x;
 	std::vector<Model::PointXYZ>* mesh_vertices;
 	std::vector<Model::Triangle>* mesh_triangles;

@@ -1,8 +1,6 @@
 #ifndef ALGOFUNCS_H_LOT
 #define ALGOFUNCS_H_LOT
 
-
-#include "camparam.h"
 #include "algoparams.h"
 #include "structs.h"
 #include "model.h"
@@ -11,6 +9,19 @@
 
 #include <Eigen/Core>
 #include <Eigen/LU>
+
+struct img_data {
+	iparams ip;
+	Eigen::Matrix4d TransM;
+
+	float* bw;
+	float* scharrx;
+	float* scharry;
+
+	float* render;
+	float* dpt_weights;
+};
+
 
 Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt, iparams cip, bool check = true);
 
@@ -30,19 +41,6 @@ Eigen::Matrix2d getJFu(const Eigen::Vector2d& u, const Eigen::VectorXd& xvec, Al
 
 average_color computeColor(QImage* img,float pix_x,float pix_y);
 
-float compute_value(float** img, float x, float y, iparams cip);
+float compute_value(float* img, float x, float y, iparams cip);
 
-
-// FROM COLORMAPPER
-bool
-mapUVtoDepth(const Eigen::Vector2f &uv, unsigned short* depth_buffer, CameraParams cp);
-
-void
-computeDepthDiscont(unsigned short * dbuffer, CameraParams camparams);
-
-void
-getTriangleCircumcscribedCircleCentroid(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, Eigen::Vector2f &circumcenter, double &radius);
-
-bool
-checkPointInsideTriangle(const Eigen::Vector2f &p1, const Eigen::Vector2f &p2, const Eigen::Vector2f &p3, const Eigen::Vector2f &pt);
 #endif

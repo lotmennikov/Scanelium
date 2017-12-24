@@ -3,11 +3,9 @@
 #include <Windows.h>
 #include <thread>
 #include "utils.h"
+#include "filters.h"
 
 using namespace std;
-
-//vector<bool> ColorMapper::failCamera;
-AlgoParams ColorMapper::algoparams;
 
 vector<average_grey> ColorMapper::comp_bw;
 vector<average_color> ColorMapper::avgcolors;
@@ -60,6 +58,8 @@ void ColorMapper::setIterations(int it_count) {
 //	if (!started)
 		this->iteration_count = it_count;
 }
+
+// RUN / STOP
 
 void ColorMapper::start() {
 	if (_started) return;
@@ -134,6 +134,8 @@ void ColorMapper::run() {
 		_started = false;
 	}
 }
+
+// ALGORITHM
 
 void 
 ColorMapper::increaseVertexCount() {
@@ -267,34 +269,12 @@ ColorMapper::increaseVertexCount() {
   newtriangles = new_polygons.size();
 }
 
-void
-ColorMapper::mapColorsZhouKoltun() {
-	cout << "entered mapColorsZhouKoltun\n";
-	
-	frame_params fp = _cameras[0]->fparams;
-	float fx_crat = 640.0f / fp.color_width;
-	CameraParams camparams(fp.color_fx*fx_crat, fp.color_fy*fx_crat, fp.color_width, fp.color_height, fp.depth_width, fp.depth_height);
-
-	iparams color_iparams(fp.color_fx, fp.color_fy, fp.color_width, fp.color_height);
-
-	double stepx = (camparams.color_width-1) / (double)(algoparams.gridsizex - 1);
-	double stepy = (camparams.color_height-1) / (double)(algoparams.gridsizey - 1);
-	algoparams = AlgoParams(stepx, stepy);
-
-	avgcolors.clear();
-
-	TransM.clear();
-	bw_images.clear();
-	scharrx_images.clear();
-	scharry_images.clear();
-
-	comp_bw.resize(mesh_vertices->size());
-	camera_point_inds.resize(camera_count);
-
+void 
+ColorMapper::computePointNormals() {
 	// COMPUTING NORMALS
 	point_normals.clear();
 	point_normals.resize(mesh_vertices->size());
-    auto it = mesh_triangles->begin();
+	auto it = mesh_triangles->begin();
 	for (int idx_face = 0; it != mesh_triangles->end(); ++it, ++idx_face) //static_cast<int> (mesh.tex_polygons[current_cam].size ()); ++idx_face)
 	{
 		float A = mesh_vertices->operator[](it->p[0]).y * (mesh_vertices->operator[](it->p[1]).z - mesh_vertices->operator[](it->p[2]).z) + mesh_vertices->operator[](it->p[1]).y * (mesh_vertices->operator[](it->p[2]).z - mesh_vertices->operator[](it->p[0]).z) + mesh_vertices->operator[](it->p[2]).y * (mesh_vertices->operator[](it->p[0]).z - mesh_vertices->operator[](it->p[1]).z);
@@ -313,97 +293,141 @@ ColorMapper::mapColorsZhouKoltun() {
 		point_normals[it->p[2]].y += B;
 		point_normals[it->p[2]].z += C;
 	}
-		
+}
+
+
+void
+ColorMapper::renderPose(vector<float>& dpt, Eigen::Matrix4f pose, iparams ip) {
+	render_return = false;
+	emit renderRequest(toQtPose(pose), ip);
+
+	while (true) {
+		render_mutex.lock();
+		if (render_return) break;
+		render_mutex.unlock();
+		Sleep(1);
+	}
+	render_mutex.unlock();
+
+	dpt = render_result;
+}
+
+void
+ColorMapper::mapColorsZhouKoltun() {
+	cout << "entered mapColorsZhouKoltun\n";
+
+	// setup camera and algorithm params
+	frame_params fp = _cameras[0]->fparams;
+	float fx_crat = 640.0f / fp.color_width;
+	iparams color_iparams(fp.color_fx, fp.color_fy, fp.color_width, fp.color_height);
+
+	AlgoParams algoparams;
+	double stepx = (color_iparams.width - 1) / (double)(algoparams.gridsizex - 1);
+	double stepy = (color_iparams.height - 1) / (double)(algoparams.gridsizey - 1);
+	algoparams = AlgoParams(stepx, stepy);
+
+	// imgs for each camera
+	avgcolors.clear();
+	bw_images.clear();
+	scharrx_images.clear();
+	scharry_images.clear();
+	camdata.clear(); camdata.resize(camera_count);
+
+	comp_bw.resize(mesh_vertices->size());
+	camera_point_inds.resize(camera_count);
+
+	std::vector<std::vector<float>> dpt_render;
+
+	// point normals
+	computePointNormals();
+
 	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 	{
-		std::vector<float> dpt_render;
+		Eigen::Matrix4d Mtcam = _cameras[current_cam]->pose.matrix().cast<double>(); Mtcam = Mtcam.inverse().eval();
 
-		render_return = false;
-		emit renderRequest(toQtPose(_cameras[current_cam]->pose.rotation(), _cameras[current_cam]->pose.translation()), color_iparams);
+		camdata[current_cam] = new img_data();
+		camdata[current_cam]->TransM = Mtcam;
 
-		while (true) {
-			render_mutex.lock();
-			if (render_return) break;
-			render_mutex.unlock();
-			Sleep(1);
-		}
-		render_mutex.unlock();
-		if (false) { // save rendering
-			uchar* img_bits = new uchar[color_iparams.width*color_iparams.height * 3];
-			for (int i = 0; i < color_iparams.width*color_iparams.height; ++i) {
-				img_bits[3 * i + 0] = render_result[i] / 2.0f * 255;
-				img_bits[3 * i + 1] = render_result[i] / 2.0f * 255;
-				img_bits[3 * i + 2] = render_result[i] / 2.0f * 255;
-			}
-			QImage img = QImage(img_bits, color_iparams.width, color_iparams.height, QImage::Format_RGB888).copy();
-			img.save("test_render.png");
-			delete[] img_bits;
-		}
-
-
-		Eigen::Matrix4d* Mtcam = new Eigen::Matrix4d(_cameras[current_cam]->pose.matrix().cast<double>()); *Mtcam = Mtcam->inverse();
-		TransM.push_back(Mtcam);
 		camera_point_inds[current_cam] = new vector<point_bw>();
-		if (!_cameras[current_cam]->depth_processed) {
-			computeDepthDiscont(&_cameras[current_cam]->depth[0], camparams);
-			_cameras[current_cam]->depth_processed = true;
-		}
-		//	processCamera(current_cam);	
-	} // 'end for (cameras)
 
-// -====== IMAGE PYRAMID ======-
+		{ // rendering
+			vector<float> dpt;
+			renderPose(dpt, _cameras[current_cam]->pose.matrix(), color_iparams);
+			dpt_render.push_back(dpt);
+			camdata[current_cam]->render = &dpt_render.back()[0];
+
+			computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, color_iparams);
+
+			// TEST
+			if (false) {
+				uchar* img = new uchar[3 * color_iparams.width*color_iparams.height];
+				for (int i = 0; i < color_iparams.width*color_iparams.height; ++i)
+				{
+					float val = camdata[current_cam]->dpt_weights[i];
+					img[i * 3] = val * 255;
+					img[i * 3 + 1] = val * 255;
+					img[i * 3 + 2] = val * 255;
+				}
+				QImage ni2 = QImage(img, color_iparams.width, color_iparams.height, QImage::Format_RGB888).copy();
+				ni2.save(QString("test-depth2.png"));
+			}
+		}
+
+	}
+
+	// -====== IMAGE PYRAMID ======-
 	int num_levels = 3;
 	int down = 1;
-	vector<CameraParams> camparams_lvl;
 	vector<AlgoParams> algoparams_lvl;
 	vector<iparams> cip_lvl;
 
 	for (int level = 0; level < num_levels; ++level) {
-		vector<float**> bwim, schxim, schyim;
-		CameraParams cp = camparams;
+		vector<float*> bwim, schxim, schyim;
 		AlgoParams ap = algoparams;
 		iparams cip = color_iparams;
-		
-		cp.color_width/=down;
-		cp.color_height/=down;
-
-		ap.stepx = (cp.color_width -1) / (double)(algoparams.gridsizex - 1);
-		ap.stepy = (cp.color_height-1) / (double)(algoparams.gridsizey - 1);
 
 		cip = cip / down;
 
+		ap.stepx = (cip.width - 1) / (double)(algoparams.gridsizex - 1);
+		ap.stepy = (cip.height - 1) / (double)(algoparams.gridsizey - 1);
+
 		for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 		{
-//			TransM.push_back(new Eigen::Matrix4d(cameras[current_cam]->pose.matrix().cast<double>()));
+			// filtering
+			QImage img = QImage(_cameras[current_cam]->img.scaled(cip.width, cip.height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+			//	if (current_cam == 0) {
+			//		img.save(QString("scale%1.png").arg(level));
+			//	}
 
-	// filtering
-			QImage img = QImage(_cameras[current_cam]->img.scaled(cp.color_width, cp.color_height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-		//	if (current_cam == 0) {
-		//		img.save(QString("scale%1.png").arg(level));
-		//	}
-
-			float** bw_img = filterBW(&img);	
-			float** scharrx_img = filterArrayScharrX(bw_img, cp.color_width, cp.color_height);
-			float** scharry_img = filterArrayScharrY(bw_img, cp.color_width, cp.color_height);
+			float* bw_img = filterBW(&img);
+			float* scharrx_img = filterArrayScharrX(bw_img, cip.width, cip.height);
+			float* scharry_img = filterArrayScharrY(bw_img, cip.width, cip.height);
 
 			bwim.push_back(bw_img);
 			schxim.push_back(scharrx_img);
 			schyim.push_back(scharry_img);
 
-//			camera_point_inds[current_cam] = new vector<point_bw>();
-			//	processCamera(current_cam);	
+			//			camera_point_inds[current_cam] = new vector<point_bw>();
+						//	processCamera(current_cam);	
 		} // 'end for (cameras)
 		bw_images.push_back(bwim);
 		scharrx_images.push_back(schxim);
 		scharry_images.push_back(schyim);
-		camparams_lvl.push_back(cp);
 		algoparams_lvl.push_back(ap);
 		cip_lvl.push_back(cip);
-		down <<=1;
-	}	
+		down <<= 1;
+	}
 	current_lvl = 0;
 
-// * подготовка многопоточия
+	for (int current_cam = 0; current_cam < camera_count; ++current_cam) {
+		camdata[current_cam]->ip = cip_lvl[current_lvl];
+
+		camdata[current_cam]->bw = bw_images[current_lvl][current_cam];
+		camdata[current_cam]->scharrx = scharrx_images[current_lvl][current_cam];
+		camdata[current_cam]->scharry = scharry_images[current_lvl][current_cam];
+	}
+
+	// prepare threads
 	for (int i = 0; i < camerathreads_num; ++i) {
 		CameraThread* thread = new CameraThread();
 		thread->threadId = i;
@@ -412,36 +436,37 @@ ColorMapper::mapColorsZhouKoltun() {
 		camera_threads.push_back(thread);
 	}
 
-// *********** многопоточие
-	multithread(PREPROCESS, algoparams_lvl[current_lvl], cip_lvl[current_lvl], camparams_lvl[current_lvl]);
-	if (_stop) return;
-// *********** конец многопоточия
+	// *********** begin multithread
+	multithread(PREPROCESS, algoparams_lvl[current_lvl], cip_lvl[current_lvl]);
+	if (_stop) { cancelThreads(); _started = false; emit finished(false);  return; }
+
+	// ***********   end multithread
 
 	printf("camera_points:\n");
 	for (int i = 0; i < camera_count; ++i) {
 		printf("#%d: %d points\n", i, (int)(camera_point_inds[i]->size()));
 	}
 
-// =======================
-// = = ALGORITHM BEGIN = =
-// =======================
+	// =======================
+	// = = ALGORITHM BEGIN = =
+	// =======================
 
-//	int iteration_count = 50;
+	//	int iteration_count = 50;
 
 	using namespace Eigen;
 	initialError = 1;
 	double PrevResid = 1;
 	int resid_lower = 0;
-	
-	double lambda = 10.0f;// 0.5f*algoparams.stepx;
-	
-	x.resize(camera_count); 
-	
+
+	double lambda = 1.0f;// 0.5f*algoparams.stepx;
+
+	x.resize(camera_count);
+
 	bigIdentity = new Eigen::SparseMatrix<double>(algoparams.matrixdim, algoparams.matrixdim);
-	bigIdentity->reserve(Eigen::VectorXi::Constant(algoparams.matrixdim,1));
-	for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i) 
-		bigIdentity->insert(i,i) = lambda;
-	
+	bigIdentity->reserve(Eigen::VectorXi::Constant(algoparams.matrixdim, 1));
+	for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i)
+		bigIdentity->insert(i, i) = lambda;
+
 
 	for (int i = 0; i < camera_count; ++i) {
 		x[i] = new Eigen::VectorXd();
@@ -449,73 +474,76 @@ ColorMapper::mapColorsZhouKoltun() {
 	}
 
 
-// ITERATIONS <===================================================
-	//current_lvl = 0;
+	// ITERATIONS <===================================================
+		//current_lvl = 0;
 	cout << "Pyramid level: " << current_lvl << endl;
 
 	cout << "iterations count " << iteration_count << endl;
-	
+
 	for (iteration = 0; iteration < iteration_count; ++iteration) {
+		if (end_iterations) break;
+		if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
+
 		printf("**** Iteration #%d ****\n\n", iteration);
-		if (_stop) return;
-		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration+1), 0);// (100.0f*(float)iteration)/iteration_count);
+
+		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration + 1), 0);// (100.0f*(float)iteration)/iteration_count);
 
 		// Average C(p)
-		for (int i = 0; i< comp_bw.size(); ++i) 
+		for (int i = 0; i < comp_bw.size(); ++i)
 			comp_bw[i].average();
 		// Вычисление отклонений
 		double E = 0.0;
 		int cnt_e = 0;
 		for (int i = 0; i < camera_count; ++i) {
-				for (int j = 0;j < camera_point_inds[i]->size(); ++j) {
-					double g = camera_point_inds[i]->at(j).bw;
-					if (g >= 0) {
-						double r = comp_bw[camera_point_inds[i]->at(j).index].bw - g; 
-						E += r*r;
-						++cnt_e;
-					}
+			for (int j = 0; j < camera_point_inds[i]->size(); ++j) {
+				double g = camera_point_inds[i]->at(j).bw;
+				if (g >= 0) {
+					double r = comp_bw[camera_point_inds[i]->at(j).index].bw - g;
+					E += r*r;
+					++cnt_e;
 				}
+			}
 		}
-		printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e,  sqrt(E / (double)cnt_e) );
-		if (iteration == 0) 
+		printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
+		if (iteration == 0)
 			initialError = sqrt(E / (double)cnt_e);
-		if (PrevResid >= sqrt(E / (double)cnt_e)) 
+		if (PrevResid >= sqrt(E / (double)cnt_e))
 			resid_lower = 0;
-		else 
-			resid_lower+=1;
-		
+		else
+			resid_lower += 1;
+
 		PrevResid = sqrt(E / (double)cnt_e);
 
 		if (resid_lower > 2) break;
-	
+
 		emit refreshResidualError(initialError, PrevResid);
-		
-// *  MULTITHREADING	
-		multithread(CameraTask::ALGORITHM, algoparams_lvl[current_lvl], cip_lvl[current_lvl], camparams_lvl[current_lvl]);
-		if (_stop) return;
-// * END MULTITHREADING
+
+		// *  MULTITHREADING	
+		multithread(CameraTask::ALGORITHM, algoparams_lvl[current_lvl], cip_lvl[current_lvl]);
+		if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
+		// * END MULTITHREADING
 
 		cout << endl;
 		// Compute C(p) again
 		for (int ip = 0; ip < comp_bw.size(); ++ip) comp_bw[ip].clear();
 		for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
-				auto it = camera_point_inds[currentcam]->begin();
-				for (;it != camera_point_inds[currentcam]->end(); it++) {
-					if ((*it).bw != -1) {
-						comp_bw[it->index].addBW(it->bw);
+			auto it = camera_point_inds[currentcam]->begin();
+			for (; it != camera_point_inds[currentcam]->end(); it++) {
+				if ((*it).bw != -1) {
+					comp_bw[it->index].addBW(it->bw);
 					//	(*it).bw =  val;
-					}		
 				}
+			}
 		}
 		cout << "iteration end" << endl;
-//		emit iterationFinished(iteration);
+		//		emit iterationFinished(iteration);
 		if (iteration % 10 == 9 && current_lvl > 0) {
-			double diffx = algoparams_lvl[current_lvl].stepx / algoparams_lvl[current_lvl-1].stepy;
-			double diffy = algoparams_lvl[current_lvl].stepy / algoparams_lvl[current_lvl-1].stepy;
+			double diffx = algoparams_lvl[current_lvl].stepx / algoparams_lvl[current_lvl - 1].stepy;
+			double diffy = algoparams_lvl[current_lvl].stepy / algoparams_lvl[current_lvl - 1].stepy;
 
 			for (int cam = 0; cam < camera_count; ++cam) {
 				for (int xdim = algoparams.dof6; xdim < algoparams.matrixdim; ++xdim) {
-					if (xdim%2==0) (*x[cam])(xdim) *= diffx;
+					if (xdim % 2 == 0) (*x[cam])(xdim) *= diffx;
 					else (*x[cam])(xdim) *= diffy;
 				}
 			}
@@ -523,66 +551,76 @@ ColorMapper::mapColorsZhouKoltun() {
 			resid_lower = 0;
 			cout << "Level down: " << current_lvl << endl;
 		}
-
-		if (end_iterations) break;
-		if (_stop) return;
 	}
 
-// =====================
-// = = ALGORITHM END = =
-// =====================
+	// =====================
+	// = = ALGORITHM END = =
+	// =====================
 
 
-	// Average C(p)
-	for (int i = 0; i < comp_bw.size(); ++i) 
+		// Average C(p)
+	for (int i = 0; i < comp_bw.size(); ++i)
 		comp_bw[i].average();
 	// Вычисление отклонений
 	double E = 0.0;
 	int cnt_e = 0;
 	for (int i = 0; i < camera_count; ++i) {
-		for (int j = 0;j < camera_point_inds[i]->size(); ++j) {
+		for (int j = 0; j < camera_point_inds[i]->size(); ++j) {
 			double g = camera_point_inds[i]->at(j).bw;
 			if (g >= 0.0) {
-				double r = comp_bw[camera_point_inds[i]->at(j).index].bw - g; 
+				double r = comp_bw[camera_point_inds[i]->at(j).index].bw - g;
 				E += r*r;
 				++cnt_e;
 			}
 		}
 	}
-	printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e,  sqrt(E / (double)cnt_e) );
+	printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
 	if (iteration_count == 0)
 		initialError = sqrt(E / (double)cnt_e);
-	
+
 	printf("\nInitial Residual Error: %lf , sqrt: %lf\n", initialError*initialError, initialError);
 
 	optimizedError = sqrt(E / (double)cnt_e);
-	
-// увеличение количества вершин и полигонов
+
+	// увеличение количества вершин и полигонов
 	oldpoints = mesh_vertices->size();
 	oldtriangles = mesh_vertices->size();
 	if (increase_model) {
-			
+
 		// subdividing triangles
 		increaseVertexCount();
 		cout << "vertex count increased" << endl;
 		point_normals.resize(mesh_vertices->size());
 		point_color.resize(mesh_vertices->size());
 
-		auto itnewp = mesh_vertices->begin()+oldpoints;
-		for (int i = oldpoints; itnewp != mesh_vertices->end(); ++itnewp, ++i) 
-			point_normals[i] = point_normals[i] + 
-							   point_normals[edge_points[i-oldpoints].first] + 
-							   point_normals[edge_points[i-oldpoints].second];
+		auto itnewp = mesh_vertices->begin() + oldpoints;
+		for (int i = oldpoints; itnewp != mesh_vertices->end(); ++itnewp, ++i)
+			point_normals[i] = point_normals[i] +
+			point_normals[edge_points[i - oldpoints].first] +
+			point_normals[edge_points[i - oldpoints].second];
 
 		cout << "new normals computed" << endl;
 	}
 
 	avgcolors.resize(mesh_vertices->size());
-	
-// * многопоточие:
+
+
+// REPEAT DEPTH RENDERING
+	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
+	{
+		Matrix4f new_pose = camdata[current_cam]->TransM.inverse().cast<float>();
+		vector<float> dpt;
+		renderPose(dpt, new_pose, color_iparams);
+		dpt_render[current_cam] = dpt;
+		camdata[current_cam]->render = &dpt_render[current_cam][0];
+
+		delete[] camdata[current_cam]->dpt_weights; // old weights
+		computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, color_iparams);
+	}
+
 // *  MULTITHREADING		
-	multithread(CameraTask::POSTPROCESS, algoparams, color_iparams, camparams);
-	if (_stop) return;
+	multithread(CameraTask::POSTPROCESS, algoparams, color_iparams);
+	if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
 // * END MULTITHREADING
 	/*
 	ofstream fout;
@@ -591,7 +629,6 @@ ColorMapper::mapColorsZhouKoltun() {
 		fout << (*x[0])(ab) << ' ';
 	}
 	fout.close();*/
-// * конец многопоточия
 
 	for (int i = 0; i < point_color.size(); ++i) {
 		if (avgcolors[i].count == 0) {
@@ -613,17 +650,15 @@ ColorMapper::mapColorsZhouKoltun() {
 
 // garbage collecting
 	for (int i = 0; i < camera_count; ++i) {
-		delete TransM[i];
 		delete x[i];
 		delete camera_point_inds[i];
 		for (int lvl = 0; lvl < num_levels; ++lvl) {
-			for (int j = 0; j < camparams_lvl[lvl].color_width; ++j) delete [] scharrx_images[lvl][i][j];
 			delete [] scharrx_images[lvl][i];
-			for (int j = 0; j < camparams_lvl[lvl].color_width; ++j) delete [] scharry_images[lvl][i][j];
 			delete [] scharry_images[lvl][i];
-			for (int j = 0; j < camparams_lvl[lvl].color_width; ++j) delete [] bw_images[lvl][i][j];
-			delete bw_images[lvl][i];
+			delete [] bw_images[lvl][i];
 		}
+		delete[] camdata[i]->dpt_weights;
+		delete camdata[i];
 	}
 
 	delete bigIdentity;
@@ -657,8 +692,8 @@ ColorMapper::mapColorsZhouKoltun() {
 
 }// 'end ZhouKoltun
 
-
-void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, CameraParams cp) {
+void 
+ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip) {
 	camerathread_mutex.lock();
 
 	while (!free_threads.empty())
@@ -680,30 +715,21 @@ void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, Camer
 				free_threads.pop();
 
 				thread->task = task;
-				thread->cp = cp;
 				thread->aparam = ap;
-				thread->cip = cip;
-				thread->cam = _cameras[currentcam];
-				thread->TransM = TransM[currentcam];
 				thread->currentcam = currentcam;
+				thread->cam = _cameras[currentcam];
+				thread->camdata = camdata[currentcam];
+				thread->mesh_vertices = mesh_vertices;
 
 				if (task == PREPROCESS) {
-					thread->mesh_vertices = mesh_vertices;
 					thread->mesh_triangles = mesh_triangles;
 					thread->camera_point_inds = camera_point_inds[currentcam];
-					thread->bw = bw_images[current_lvl][currentcam];
-					thread->cam = _cameras[currentcam];
 				}
 				if (task == ALGORITHM) {
-					thread->mesh_vertices = mesh_vertices;
-					thread->scharrx = scharrx_images[current_lvl][currentcam];
-					thread->scharry = scharry_images[current_lvl][currentcam];
-					thread->bw = bw_images[current_lvl][currentcam];
 					thread->camera_point_inds = camera_point_inds[currentcam];
 					thread->x = x[currentcam];
 				}
 				if (task == POSTPROCESS) {
-					thread->mesh_vertices = mesh_vertices;
 					thread->mesh_triangles = mesh_triangles;
 					thread->x = x[currentcam];
 					thread->processing_points_size = oldpoints;
@@ -747,6 +773,8 @@ void ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip, Camer
 		return;
 	}
 }
+
+// SLOTS
 
 void 
 ColorMapper::cameraTaskFinished(int camera, int thread, bool success) {
