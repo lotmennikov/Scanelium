@@ -11,12 +11,12 @@
 #include <Eigen/LU>
 
 struct img_data {
-	iparams ip;
 	Eigen::Matrix4d TransM;
 
-	float* bw;
-	float* scharrx;
-	float* scharry;
+	iparams* ip;
+	float** bw;
+	float** scharrx;
+	float** scharry;
 
 	float* render;
 	float* dpt_weights;

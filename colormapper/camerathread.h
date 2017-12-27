@@ -29,6 +29,7 @@ public:
 	AlgoParams aparam;
 // in algorithm
 	int currentcam;
+	int current_lvl;
 	img_data* camdata;
 
 	Eigen::VectorXd* x;
@@ -38,7 +39,7 @@ public:
 	std::vector<point_bw>* camera_point_inds;
 // in postProcess
 	// currentcam;
-	// *TransM
+	// camdata
 	// *x
 	// vertices
 	// triangles
@@ -47,9 +48,7 @@ public:
 	int processing_points_size;
 // in preProcess
 	// currentcam
-	// cam
-	// *TransM
-	// bw
+	// camdata
 	// mesh
 	// cloud
 	// camera_point_inds
@@ -64,6 +63,7 @@ private:
 
 	void preProcessCamera();
 
+	void computePointBW();
 signals:
 
 	void started();

@@ -74,3 +74,7 @@ inline Eigen::Affine3f computeCamPoseE(rec_settings rs) {
 	pose = offset * pose;
 	return pose;
 }
+
+void saveFloatImg(float* data, int width, int height, std::string filename, float normalize = 1.0f);
+
+void saveSignedFloatImg(float* data, int width, int height, std::string filename, float normalize = 1.0f);

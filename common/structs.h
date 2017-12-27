@@ -57,6 +57,8 @@ struct average_grey
 			bw /= (float)count;
 			count = 1;
 		}
+		else bw = 0;
+
 		if (bw > 1.0) 
 			bw = 1.0;
 	}

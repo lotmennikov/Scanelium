@@ -19,6 +19,9 @@ void CameraThread::run() {
 	case POSTPROCESS:
 		postProcessCamera();
 		break;
+	case BWCOLORS:
+		computePointBW();
+		break;
 	}
 	if (failed) return;
 
@@ -26,6 +29,9 @@ void CameraThread::run() {
 }
 
 void CameraThread::computedx() {
+	iparams cip = camdata->ip[current_lvl];
+
+	double eps = 0.000000001;
 
 	int dof6 = 6;
 
@@ -65,10 +71,10 @@ void CameraThread::computedx() {
 	// * compute Jug  \/
 				Eigen::Vector4d initG = Gfunc(pnt, camdata->TransM);
 
-				Jug = getJug(initG, camdata->ip);
+				Jug = getJug(initG, cip);
 
 	// * compute JFu  \/
-				Eigen::Vector2d initU = Ufunc(initG, camdata->ip); // checked projection
+				Eigen::Vector2d initU = Ufunc(initG, cip); // checked projection
 
 				JFu = getJFu(initU, *x, aparam); // 0 if bad projection
 
@@ -77,8 +83,8 @@ void CameraThread::computedx() {
 
 				double step = 1;
 				if (initF(0) >= 0 && initF(1) >= 0) {
-					Gru(0, 0) = -compute_value(camdata->scharrx, initF(0), initF(1), camdata->ip);
-					Gru(0, 1) = -compute_value(camdata->scharry, initF(0), initF(1), camdata->ip);
+					Gru(0, 0) = -compute_value(camdata->scharrx[current_lvl], initF(0), initF(1), cip);
+					Gru(0, 1) = -compute_value(camdata->scharry[current_lvl], initF(0), initF(1), cip);
 				} else {
 					Gru(0,0) = Gru(0,1) = 0;
 					res(ipoint) = 0;
@@ -139,9 +145,11 @@ void CameraThread::computedx() {
 		for (int i = 0; i < 6; ++i) (*x)(i) = 0; // transformation is updated independently
 
 		camdata->TransM = eTrotation(dx, camdata->TransM);
+
+		computePointBW();
+
+		/*
 		Matrix4d transf = camdata->TransM;
-
-
 		it = camera_point_inds->begin();
 		for (;it != camera_point_inds->end(); it++) {
 			Vector4d pnt;
@@ -153,14 +161,13 @@ void CameraThread::computedx() {
 			Vector4d initG = Gfunc(pnt, transf);
 			Vector2d initU = Ufunc(initG, camdata->ip);
 			Vector2d initF = Ffunc(initU, *x, aparam);
-			if (initF(0) >= 0 && initF(1) >= 0 && initF(0) <= camdata->ip.width - 1 && initF(1) <= camdata->ip.height - 1)  {
+			if (!isnan(initF(0))) {
 				it->bw = compute_value(camdata->bw, initF(0), initF(1), camdata->ip);
 			} else {
 				//	cout << "Bad coordinates : " << initU << endl;
 				it->bw = -1;
-				//	system("pause");
 			}		
-		}
+		}*/
 	} catch (const std::exception& ex) {
 		cout << "Thread "<< threadId << " exception " << ex.what() << endl;
 		if 	(locked)
@@ -230,7 +237,7 @@ inline void computeProjections(Matrix4d cam_pose_inv, vector<Model::PointXYZ>* m
 
 			int ux = (int)roundf(proj.x());
 			int uy = (int)roundf(proj.y());
-			float depth_rendered = interp(depth, proj.x(), proj.y(), cip);//camdata->render[uy*cip.width + ux];
+			float depth_rendered = interp(depth, proj.x(), proj.y(), cip);
 			float diff = camera_z - depth_rendered;
 
 			if (diff < 0.001f)
@@ -242,13 +249,13 @@ inline void computeProjections(Matrix4d cam_pose_inv, vector<Model::PointXYZ>* m
 }
 
 void CameraThread::postProcessCamera() {
-	iparams cip = camdata->ip;
+	iparams cip = camdata->ip[0];
 
 	vector<Vector2d> projections(processing_points_size);
 	vector<bool> visible_render(processing_points_size);
 
 	Matrix4d cam_pose_inv = camdata->TransM;
-	computeProjections(cam_pose_inv, mesh_vertices, processing_points_size, projections, visible_render, camdata->render, camdata->ip);
+	computeProjections(cam_pose_inv, mesh_vertices, processing_points_size, projections, visible_render, camdata->render, cip);
 
 	Matrix4d cam_pose = cam_pose_inv.inverse();
 	normal camera;
@@ -288,8 +295,8 @@ void CameraThread::postProcessCamera() {
 	ident_mutex.lock(); // for safe avgcolors inc
 
 // adding color to each point
-	//uchar* img_bits = new uchar[3 * cip.width*cip.height];
-	//memset(img_bits, 0, 3 * cip.width*cip.height * sizeof(uchar));
+//	uchar* img_bits = new uchar[3 * cip.width*cip.height];
+//	memset(img_bits, 0, 3 * cip.width*cip.height * sizeof(uchar));
 	
 	auto ip = projections.begin();
 	for (int i = 0; ip != projections.end(); ++ip, ++i) { 
@@ -311,10 +318,18 @@ void CameraThread::postProcessCamera() {
 
 				float weight = max(0.0f, (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen()));
 
+				/*
+				int ux = (int)roundf(u.x());
+				int uy = (int)roundf(u.y());
+				img_bits[3 * (uy*cip.width + ux) + 0] = 255 * weight;
+				img_bits[3 * (uy*cip.width + ux) + 1] = 255 * weight;
+				img_bits[3 * (uy*cip.width + ux) + 2] = 255 * weight;
+				*/
+
 				weight /= tocam.getLen()*tocam.getLen();
 
+				if (dpt_weight < 0.99f) dpt_weight = pow(dpt_weight, 3);
 				if (dpt_weight < 0.001f) dpt_weight = 0.001f;
-				if (dpt_weight < 1.0f) dpt_weight = dpt_weight*dpt_weight*0.1f;
 
 				weight *= dpt_weight;
 
@@ -324,44 +339,31 @@ void CameraThread::postProcessCamera() {
 				}
 
 				// img
-			}
-
-			/*
-			int ux = (int)roundf(u.x());
-			int uy = (int)roundf(u.y());
-			img_bits[3 * (uy*cip.width + ux) + 0] = 255 * (1.0f - dpt_weight);
-			img_bits[3 * (uy*cip.width + ux) + 1] = 255 * visible_render[i] * (dpt_weight);
-			img_bits[3 * (uy*cip.width + ux) + 2] = 0;
-			*/
+			}			
 		}
 	} // 'end add color
 
-	//QImage img_errdpt = QImage(img_bits, cip.width, cip.height, QImage::Format_RGB888).copy();
-	//img_errdpt.save(QString::fromStdString("img_errdpt" + to_string(this->currentcam) + ".png"));
-	//delete[] img_bits;
+//	QImage img_errdpt = QImage(img_bits, cip.width, cip.height, QImage::Format_RGB888).copy();
+//	img_errdpt.save(QString::fromStdString("img_nweights" + to_string(this->currentcam) + ".png"));
+//	delete[] img_bits;
 
 	ident_mutex.unlock();
 }
 
 void CameraThread::preProcessCamera() {
-	iparams cip = camdata->ip;
+	iparams cip = camdata->ip[current_lvl];
 
 	vector<Vector2d> projections(mesh_vertices->size());
 	vector<bool> visible_render(mesh_vertices->size());
 
 	Matrix4d cam_pose_inv = camdata->TransM;
-	computeProjections(cam_pose_inv, mesh_vertices, mesh_vertices->size(), projections, visible_render, camdata->render, camdata->ip);
+	computeProjections(cam_pose_inv, mesh_vertices, mesh_vertices->size(), projections, visible_render, camdata->render, cip);
 	   
-	// adding color to each point
 	normal camera;
 	Matrix4d pose_corr = camdata->TransM.inverse();
-	camera.x = pose_corr(0,3);
-	camera.y = pose_corr(1,3);
-	camera.z = pose_corr(2,3);
+	camera.x = pose_corr(0,3); camera.y = pose_corr(1,3); camera.z = pose_corr(2,3);
 
-	ident_mutex.lock(); // process each camera sequentially
-
-	cout << "Thread " << threadId << " preprocess finish - computing camera_point_inds" << endl;
+	cout << "Thread " << threadId << " finished preprocessing - computing camera_point_inds" << endl;
 	vector<point_bw> temp_points;
 	temp_points.reserve(mesh_vertices->size());
 
@@ -386,10 +388,8 @@ void CameraThread::preProcessCamera() {
 
 			float weight = max(0.0f, (pointnormal.x*tocam.x + pointnormal.y*tocam.y + pointnormal.z*tocam.z) / (pointnormal.getLen() * tocam.getLen()));
 			if (dpt_weight > 0.5 && weight > 0.1) {
-				float val = compute_value(camdata->bw, u.x(), u.y(), cip);
-				ColorMapper::comp_bw[i].addBW(val);
-
-				temp_points.push_back(point_bw(i, val, weight));
+				// only fill array with suitable points
+				temp_points.push_back(point_bw(i, -1, 1));
 			}
 
 			// img
@@ -399,7 +399,7 @@ void CameraThread::preProcessCamera() {
 			img_bits[3 * (uy*cip.width + ux) + 1] = 255 * visible_render[i] * (dpt_weight);
 			img_bits[3 * (uy*cip.width + ux) + 2] = 0;
 		}
-	} // 'end add color
+	}
 
 	//QImage img_errdpt = QImage(img_bits, cip.width, cip.height, QImage::Format_RGB888).copy();
 	//img_errdpt.save("img_errdpt.png");
@@ -407,6 +407,32 @@ void CameraThread::preProcessCamera() {
 
 	camera_point_inds->resize(temp_points.size());
 	std::copy(temp_points.begin(), temp_points.end(), camera_point_inds->begin());
+}
 
-	ident_mutex.unlock();
+void CameraThread::computePointBW() {
+	//float val = compute_value(camdata->bw, u.x(), u.y(), cip);
+	//ColorMapper::comp_bw[i].addBW(val);
+
+	Matrix4d transf = camdata->TransM;
+
+	auto it = camera_point_inds->begin();
+	for (; it != camera_point_inds->end(); it++) {
+		Vector4d pnt;
+		pnt(0) = mesh_vertices->operator[]((*it).index).x;
+		pnt(1) = mesh_vertices->operator[]((*it).index).y;
+		pnt(2) = mesh_vertices->operator[]((*it).index).z;
+		pnt(3) = 1;
+
+		Vector4d initG = Gfunc(pnt, transf);
+		Vector2d initU = Ufunc(initG, camdata->ip[current_lvl]);
+		Vector2d initF = Ffunc(initU, *x, aparam);
+
+		if (!isnan(initF(0))) {
+			it->bw = compute_value(camdata->bw[current_lvl], initF(0), initF(1), camdata->ip[current_lvl]);
+		}
+		else {
+			//	cout << "Bad coordinates : " << initU << endl;
+			it->bw = -1;
+		}
+	}
 }

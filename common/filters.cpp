@@ -3,8 +3,9 @@
 
 using namespace std;
 
-float* filterArrayScharrX(QImage* img) {
-	float* scharrX = new float[img->width() * img->height()];
+// preallocated
+
+void filterArrayScharrX(QImage* img, float* scharrX) {
 	for (int x = 0; x < img->width(); ++x) {
 		for (int y = 0; y < img->height(); ++y) {
 			float wx = 0;
@@ -19,11 +20,9 @@ float* filterArrayScharrX(QImage* img) {
 			scharrX[y * img->width() + x] = wx / 255.0f; 
 		}
 	}
-	return scharrX;
 }
 
-float* filterArrayScharrY(QImage* img) {
-	float* scharrY = new float[img->width()*img->height()];
+void filterArrayScharrY(QImage* img, float* scharrY) {
 	for (int x = 0; x < img->width(); ++x) {
 		for (int y = 0; y < img->height(); ++y) {
 			float wy = 0;
@@ -37,11 +36,9 @@ float* filterArrayScharrY(QImage* img) {
 			scharrY[y * img->width() + x] = wy / 255.0f;
 		}
 	}
-	return scharrY;
 }
 
-float* filterArrayScharrX(float* img, int width, int height) {
-	float* scharrX = new float[width*height];
+void filterArrayScharrX(float* img, float* scharrX, int width, int height) {
 	for (int x = 0; x < width; ++x) {
 		for (int y = 0; y < height; ++y) {
 			float wx = 0;
@@ -54,11 +51,9 @@ float* filterArrayScharrX(float* img, int width, int height) {
 			scharrX[y * width + x] = wx;
 		}
 	}
-	return scharrX;
 }
 
-float* filterArrayScharrY(float* img, int width, int height) {
-	float* scharrY = new float[width*height];
+void filterArrayScharrY(float* img, float* scharrY, int width, int height) {
 	for (int x = 0; x < width; ++x) {
 		for (int y = 0; y < height; ++y) {
 			float wy = 0;
@@ -71,11 +66,9 @@ float* filterArrayScharrY(float* img, int width, int height) {
 			scharrY[y*width + x] = wy;
 		}
 	}
-	return scharrY;
 }
 
-float* filterArrayScharr(float* img, int width, int height) {
-	float* scharr = new float[width*height];
+void filterArrayScharr(float* img, float* scharr, int width, int height) {
 	for (int x = 0; x < width; ++x) {
 		for (int y = 0; y < height; ++y) {
 			float wx = 0;
@@ -91,35 +84,20 @@ float* filterArrayScharr(float* img, int width, int height) {
             scharr[y*width+x] = sqrtf(wx*wx + wy*wy);
 		}
 	}
-	return scharr;
 }
 
-float* filterBWdepth(unsigned short* depth_buffer, int width, int height) {
-	float maxdep = 6000.0f;
-	float* bw_dep = new float[width*height];
-	for (int x = 0; x < width; ++x) {
-		for (int y = 0; y < height; ++y) {
-			bw_dep[y*width + x] = 1.0 - min(1.0f, ((float)depth_buffer[x + y*width]) / maxdep); 
-		}
-	}
-	return bw_dep;
-}
-
-float* filterBW(QImage* img) {
-	float* bw = new float[img->width()*img->height()];
+void filterBW(QImage* img, float* bw) {
 	for (int x = 0; x < img->width(); ++x) {
 		for (int y = 0; y < img->height(); ++y) {
 			QColor pix = QColor(img->pixel(x, y));
 			bw[y*img->width() + x] = ((float)pix.red()*0.3f + (float)pix.green()*0.5f + (float)pix.blue()*0.2f) / 255.0f;
 		}
 	}
-	return bw;
 }
 
 void
-computeWeightsFromDepth(float * depth, float*& weights, iparams dip, float thres_grad) {
+computeWeightsFromDepth(float * depth, float* weights, iparams dip, int rad, float thres_grad) {
 	const float maxdepth = 6.000f;
-	const int rad = 5;
 	const int diam = rad * 2 + 1;
 
 	float * conv_depth = filterArrayScharr(depth, dip.width, dip.height);
@@ -133,6 +111,8 @@ computeWeightsFromDepth(float * depth, float*& weights, iparams dip, float thres
 		if (depth[i] == 0 || depth[i] >= maxdepth)
 			weights_temp[i] = 0;
 	}
+	delete[] conv_depth;
+
 	
 	int idx = 0;
 	for (int y = 0; y < dip.height; ++y) {
@@ -151,6 +131,45 @@ computeWeightsFromDepth(float * depth, float*& weights, iparams dip, float thres
 			}
 		}
 	}
-	weights = weights_temp;
-	delete[] conv_depth;
+	std::copy_n(weights_temp, dip.width*dip.height, weights);
+	delete[] weights_temp;
+}
+
+
+// with allocation
+
+float* filterArrayScharrX(QImage* img) {
+	float* scharrX = new float[img->width() * img->height()];
+	filterArrayScharrX(img, scharrX);
+	return scharrX;
+}
+
+float* filterArrayScharrY(QImage* img) {
+	float* scharrY = new float[img->width()*img->height()];
+	filterArrayScharrY(img, scharrY);
+	return scharrY;
+}
+
+float* filterArrayScharrX(float* img, int width, int height) {
+	float* scharrX = new float[width*height];
+	filterArrayScharrX(img, scharrX, width, height);
+	return scharrX;
+}
+
+float* filterArrayScharrY(float* img, int width, int height) {
+	float* scharrY = new float[width*height];
+	filterArrayScharrY(img, scharrY, width, height);
+	return scharrY;
+}
+
+float* filterArrayScharr(float* img, int width, int height) {
+	float* scharr = new float[width*height];
+	filterArrayScharr(img, scharr, width, height);
+	return scharr;
+}
+
+float* filterBW(QImage* img) {
+	float* bw = new float[img->width()*img->height()];
+	filterBW(img, bw);
+	return bw;
 }

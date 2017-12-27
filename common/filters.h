@@ -18,14 +18,21 @@ const int offsety[9] = { -1, -1, -1,
 						  0,  0,  0, 
 						  1,  1,  1 };
 
+void filterBW(QImage* img, float* out);
+void filterArrayScharrX(QImage* img, float* out);
+void filterArrayScharrY(QImage* img, float* out);
+
+void filterArrayScharr(float* img, float* out, int width, int height);
+void filterArrayScharrX(float* img, float* out, int width, int height);
+void filterArrayScharrY(float* img, float* out, int width, int height);
+
 float* filterBW(QImage* img);
 float* filterArrayScharrX(QImage* img);
 float* filterArrayScharrY(QImage* img);
 
-float* filterBWdepth(unsigned short* depth_buffer, int width, int height);
 float* filterArrayScharr(float* img, int width, int height);
 float* filterArrayScharrX(float* img, int width, int height);
 float* filterArrayScharrY(float* img, int width, int height);
 
 // compute depth discontinuities and assign weights to pixels
-void computeWeightsFromDepth(float* depth, float*& weights, iparams depth_intr, float thres_grad = 0.025f);
+void computeWeightsFromDepth(float* depth, float* weights, iparams depth_intr, int max_dist = 5, float thres_grad = 0.025f);

@@ -95,38 +95,9 @@ void ColorMapper::hardStop(bool wait) {
 	}
 }
 
-void ColorMapper::cancelThreads() {
-	if (camera_threads.size() > 0) {
-		while (!free_threads.empty())
-			free_threads.pop();
-		for (int i = 0; i < camera_threads.size(); ++i) {
-			if (camera_threads[i]->isRunning()) {
-				camera_threads[i]->quit();
-				camera_threads[i]->wait();
-			}
-			delete camera_threads[i];
-		}
-	}
-}
-
 void ColorMapper::run() {
 	if (!_started) return;
 	if (_model->getFramesSize() > 0) {
-		//	if (camerathread_mutex)
-
-		if (mesh_vertices == NULL) mesh_vertices = new vector<Model::PointXYZ>();
-		if (mesh_triangles == NULL) mesh_triangles = new vector<Model::Triangle>();
-
-		_model->copyVertices(*mesh_vertices);
-		_model->copyTriangles(*mesh_triangles);
-		_model->copyFrames(this->_cameras);
-		camera_count = this->_cameras.size();
-		// computing colors
-		point_color = vector<Model::ColorRGB>(mesh_vertices->size());
-
-		// TEST
-	//	increase_model = false;
-
 		zhk_thread = new std::thread(callZhk, this);
 	}
 	else {
@@ -295,7 +266,6 @@ ColorMapper::computePointNormals() {
 	}
 }
 
-
 void
 ColorMapper::renderPose(vector<float>& dpt, Eigen::Matrix4f pose, iparams ip) {
 	render_return = false;
@@ -313,133 +283,112 @@ ColorMapper::renderPose(vector<float>& dpt, Eigen::Matrix4f pose, iparams ip) {
 }
 
 void
-ColorMapper::mapColorsZhouKoltun() {
-	cout << "entered mapColorsZhouKoltun\n";
+ColorMapper::prepareData(iparams cip, AlgoParams ap) {
+	if (mesh_vertices == NULL) mesh_vertices = new vector<Model::PointXYZ>();
+	if (mesh_triangles == NULL) mesh_triangles = new vector<Model::Triangle>();
 
-	// setup camera and algorithm params
-	frame_params fp = _cameras[0]->fparams;
-	float fx_crat = 640.0f / fp.color_width;
-	iparams color_iparams(fp.color_fx, fp.color_fy, fp.color_width, fp.color_height);
+	_model->copyVertices(*mesh_vertices);
+	_model->copyTriangles(*mesh_triangles);
+	_model->copyFrames(this->_cameras);
+	camera_count = this->_cameras.size();
+	point_color = vector<Model::ColorRGB>(mesh_vertices->size());
 
-	AlgoParams algoparams;
-	double stepx = (color_iparams.width - 1) / (double)(algoparams.gridsizex - 1);
-	double stepy = (color_iparams.height - 1) / (double)(algoparams.gridsizey - 1);
-	algoparams = AlgoParams(stepx, stepy);
-
-	// imgs for each camera
 	avgcolors.clear();
-	bw_images.clear();
-	scharrx_images.clear();
-	scharry_images.clear();
-	camdata.clear(); camdata.resize(camera_count);
+	algoparams_lvl.clear();
+	camdata.clear();
+	comp_bw.clear();
+	camera_point_inds.clear();
 
 	comp_bw.resize(mesh_vertices->size());
 	camera_point_inds.resize(camera_count);
+	camdata.resize(camera_count);
 
-	std::vector<std::vector<float>> dpt_render;
-
-	// point normals
-	computePointNormals();
-
+	// imgs for each camera
 	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 	{
 		Eigen::Matrix4d Mtcam = _cameras[current_cam]->pose.matrix().cast<double>(); Mtcam = Mtcam.inverse().eval();
 
 		camdata[current_cam] = new img_data();
 		camdata[current_cam]->TransM = Mtcam;
-
-		camera_point_inds[current_cam] = new vector<point_bw>();
+		camdata[current_cam]->scharrx = new float*[num_levels];
+		camdata[current_cam]->scharry = new float*[num_levels];
+		camdata[current_cam]->bw = new float*[num_levels];
+		camdata[current_cam]->ip = new iparams[num_levels];
 
 		{ // rendering
 			vector<float> dpt;
-			renderPose(dpt, _cameras[current_cam]->pose.matrix(), color_iparams);
+			renderPose(dpt, _cameras[current_cam]->pose.matrix(), cip);
 			dpt_render.push_back(dpt);
 			camdata[current_cam]->render = &dpt_render.back()[0];
-
-			computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, color_iparams);
+			camdata[current_cam]->dpt_weights = new float[cip.width*cip.height];
+			computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, cip, 9);
 
 			// TEST
-			if (false) {
-				uchar* img = new uchar[3 * color_iparams.width*color_iparams.height];
-				for (int i = 0; i < color_iparams.width*color_iparams.height; ++i)
-				{
-					float val = camdata[current_cam]->dpt_weights[i];
-					img[i * 3] = val * 255;
-					img[i * 3 + 1] = val * 255;
-					img[i * 3 + 2] = val * 255;
-				}
-				QImage ni2 = QImage(img, color_iparams.width, color_iparams.height, QImage::Format_RGB888).copy();
-				ni2.save(QString("test-depth2.png"));
-			}
+			//saveFloatImg(camdata[current_cam]->dpt_weights, ip.width, ip.height, "test_depth2.png");
 		}
 
+		camera_point_inds[current_cam] = new vector<point_bw>();
 	}
 
 	// -====== IMAGE PYRAMID ======-
-	int num_levels = 3;
 	int down = 1;
-	vector<AlgoParams> algoparams_lvl;
-	vector<iparams> cip_lvl;
-
 	for (int level = 0; level < num_levels; ++level) {
-		vector<float*> bwim, schxim, schyim;
-		AlgoParams ap = algoparams;
-		iparams cip = color_iparams;
-
-		cip = cip / down;
-
-		ap.stepx = (cip.width - 1) / (double)(algoparams.gridsizex - 1);
-		ap.stepy = (cip.height - 1) / (double)(algoparams.gridsizey - 1);
+		iparams cip_p = cip / down;
+		AlgoParams ap = AlgoParams(true, cip_p.width, cip_p.height);
 
 		for (int current_cam = 0; current_cam < camera_count; ++current_cam)
 		{
-			// filtering
-			QImage img = QImage(_cameras[current_cam]->img.scaled(cip.width, cip.height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-			//	if (current_cam == 0) {
-			//		img.save(QString("scale%1.png").arg(level));
-			//	}
+			QImage img = QImage(_cameras[current_cam]->img.scaled(cip_p.width, cip_p.height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+			//	if (current_cam == 0) img.save(QString("scale%1.png").arg(level));
 
 			float* bw_img = filterBW(&img);
-			float* scharrx_img = filterArrayScharrX(bw_img, cip.width, cip.height);
-			float* scharry_img = filterArrayScharrY(bw_img, cip.width, cip.height);
+			float* scharrx_img = filterArrayScharrX(bw_img, cip_p.width, cip_p.height);
+			float* scharry_img = filterArrayScharrY(bw_img, cip_p.width, cip_p.height);
 
-			bwim.push_back(bw_img);
-			schxim.push_back(scharrx_img);
-			schyim.push_back(scharry_img);
-
-			//			camera_point_inds[current_cam] = new vector<point_bw>();
-						//	processCamera(current_cam);	
-		} // 'end for (cameras)
-		bw_images.push_back(bwim);
-		scharrx_images.push_back(schxim);
-		scharry_images.push_back(schyim);
+			camdata[current_cam]->ip[level] = cip_p;
+			camdata[current_cam]->bw[level] = bw_img;
+			camdata[current_cam]->scharrx[level] = scharrx_img;
+			camdata[current_cam]->scharry[level] = scharry_img;
+		}
 		algoparams_lvl.push_back(ap);
-		cip_lvl.push_back(cip);
 		down <<= 1;
 	}
+
+
+	// for algorithm
+	bigIdentity = new Eigen::SparseMatrix<double>(ap.matrixdim, ap.matrixdim);
+	bigIdentity->reserve(Eigen::VectorXi::Constant(ap.matrixdim, 1));
+
+	x.resize(camera_count);
+	for (int i = 0; i < camera_count; ++i) {
+		x[i] = new Eigen::VectorXd();
+		*x[i] = Eigen::VectorXd::Zero(ap.matrixdim, 1);
+	}
+}
+
+void
+ColorMapper::mapColorsZhouKoltun() {
+	cout << "entered mapColorsZhouKoltun\n";
+
+	// setup camera and algorithm params
+	frame_params fp = _model->getFrame(0)->fparams;
+	iparams cip(fp.color_fx, fp.color_fy, fp.color_width, fp.color_height);
+	AlgoParams algoparams = AlgoParams(true, cip.width, cip.height);
+
+	num_levels = 3;
 	current_lvl = 0;
 
-	for (int current_cam = 0; current_cam < camera_count; ++current_cam) {
-		camdata[current_cam]->ip = cip_lvl[current_lvl];
+	prepareData(cip, algoparams);
 
-		camdata[current_cam]->bw = bw_images[current_lvl][current_cam];
-		camdata[current_cam]->scharrx = scharrx_images[current_lvl][current_cam];
-		camdata[current_cam]->scharry = scharry_images[current_lvl][current_cam];
-	}
+	// point normals
+	computePointNormals();
 
 	// prepare threads
-	for (int i = 0; i < camerathreads_num; ++i) {
-		CameraThread* thread = new CameraThread();
-		thread->threadId = i;
-		connect(thread, &CameraThread::finished, this, &ColorMapper::cameraTaskFinished);
-		connect(thread, &CameraThread::error, this, &ColorMapper::cameraTaskError);
-		camera_threads.push_back(thread);
-	}
+	prepareThreads(camerathreads_num);
 
 	// *********** begin multithread
-	multithread(PREPROCESS, algoparams_lvl[current_lvl], cip_lvl[current_lvl]);
-	if (_stop) { cancelThreads(); _started = false; emit finished(false);  return; }
-
+	multithread(PREPROCESS, current_lvl);
+	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
 	// ***********   end multithread
 
 	printf("camera_points:\n");
@@ -447,9 +396,9 @@ ColorMapper::mapColorsZhouKoltun() {
 		printf("#%d: %d points\n", i, (int)(camera_point_inds[i]->size()));
 	}
 
-	// =======================
-	// = = ALGORITHM BEGIN = =
-	// =======================
+// =======================
+// = = ALGORITHM BEGIN = =
+// =======================
 
 	//	int iteration_count = 50;
 
@@ -460,37 +409,37 @@ ColorMapper::mapColorsZhouKoltun() {
 
 	double lambda = 1.0f;// 0.5f*algoparams.stepx;
 
-	x.resize(camera_count);
-
-	bigIdentity = new Eigen::SparseMatrix<double>(algoparams.matrixdim, algoparams.matrixdim);
-	bigIdentity->reserve(Eigen::VectorXi::Constant(algoparams.matrixdim, 1));
 	for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i)
 		bigIdentity->insert(i, i) = lambda;
-
-
-	for (int i = 0; i < camera_count; ++i) {
-		x[i] = new Eigen::VectorXd();
-		*x[i] = Eigen::VectorXd::Zero(algoparams.matrixdim, 1);
-	}
-
 
 	// ITERATIONS <===================================================
 		//current_lvl = 0;
 	cout << "Pyramid level: " << current_lvl << endl;
 
-	cout << "iterations count " << iteration_count << endl;
+	// compute initial bw;
+	// *********** begin multithread
+	multithread(BWCOLORS, current_lvl);
+	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
+	// ***********   end multithread
 
+	// summing bw for each point p
+	for (int ip = 0; ip < comp_bw.size(); ++ip) comp_bw[ip].clear();
+	for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) 
+		for (auto it = camera_point_inds[currentcam]->begin(); it != camera_point_inds[currentcam]->end(); it++) 
+			if ((*it).bw > -1) comp_bw[it->index].addBW(it->bw);
+	
+	// Average C(p)
+	for (int i = 0; i < comp_bw.size(); ++i) comp_bw[i].average();
+
+	cout << "iterations count " << iteration_count << endl;
 	for (iteration = 0; iteration < iteration_count; ++iteration) {
 		if (end_iterations) break;
-		if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
+		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
 
 		printf("**** Iteration #%d ****\n\n", iteration);
 
-		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration + 1), 0);// (100.0f*(float)iteration)/iteration_count);
+		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration + 1), 0);
 
-		// Average C(p)
-		for (int i = 0; i < comp_bw.size(); ++i)
-			comp_bw[i].average();
 		// Вычисление отклонений
 		double E = 0.0;
 		int cnt_e = 0;
@@ -514,29 +463,26 @@ ColorMapper::mapColorsZhouKoltun() {
 
 		PrevResid = sqrt(E / (double)cnt_e);
 
-		if (resid_lower > 2) break;
+		if (resid_lower > 2) break; // error increased twice
 
 		emit refreshResidualError(initialError, PrevResid);
 
 		// *  MULTITHREADING	
-		multithread(CameraTask::ALGORITHM, algoparams_lvl[current_lvl], cip_lvl[current_lvl]);
-		if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
+		multithread(CameraTask::ALGORITHM, current_lvl); // includes bw computation
+		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
 		// * END MULTITHREADING
 
-		cout << endl;
 		// Compute C(p) again
 		for (int ip = 0; ip < comp_bw.size(); ++ip) comp_bw[ip].clear();
-		for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam) {
-			auto it = camera_point_inds[currentcam]->begin();
-			for (; it != camera_point_inds[currentcam]->end(); it++) {
-				if ((*it).bw != -1) {
-					comp_bw[it->index].addBW(it->bw);
-					//	(*it).bw =  val;
-				}
-			}
-		}
+		for (int currentcam = 0; currentcam < camera_point_inds.size(); ++currentcam)
+			for (auto it = camera_point_inds[currentcam]->begin(); it != camera_point_inds[currentcam]->end(); it++)
+				if ((*it).bw != -1)	comp_bw[it->index].addBW(it->bw);
+		// Average C(p)
+		for (int i = 0; i < comp_bw.size(); ++i) comp_bw[i].average();
+
 		cout << "iteration end" << endl;
-		//		emit iterationFinished(iteration);
+		
+		// change level
 		if (iteration % 10 == 9 && current_lvl > 0) {
 			double diffx = algoparams_lvl[current_lvl].stepx / algoparams_lvl[current_lvl - 1].stepy;
 			double diffy = algoparams_lvl[current_lvl].stepy / algoparams_lvl[current_lvl - 1].stepy;
@@ -553,15 +499,11 @@ ColorMapper::mapColorsZhouKoltun() {
 		}
 	}
 
-	// =====================
-	// = = ALGORITHM END = =
-	// =====================
+// =====================
+// = = ALGORITHM END = =
+// =====================
 
-
-		// Average C(p)
-	for (int i = 0; i < comp_bw.size(); ++i)
-		comp_bw[i].average();
-	// Вычисление отклонений
+	// compute resulting error
 	double E = 0.0;
 	int cnt_e = 0;
 	for (int i = 0; i < camera_count; ++i) {
@@ -610,17 +552,16 @@ ColorMapper::mapColorsZhouKoltun() {
 	{
 		Matrix4f new_pose = camdata[current_cam]->TransM.inverse().cast<float>();
 		vector<float> dpt;
-		renderPose(dpt, new_pose, color_iparams);
+		renderPose(dpt, new_pose, cip);
 		dpt_render[current_cam] = dpt;
 		camdata[current_cam]->render = &dpt_render[current_cam][0];
-
-		delete[] camdata[current_cam]->dpt_weights; // old weights
-		computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, color_iparams);
+		// new weights
+		computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, cip, 9);
 	}
 
 // *  MULTITHREADING		
-	multithread(CameraTask::POSTPROCESS, algoparams, color_iparams);
-	if (_stop) { cancelThreads(); _started = false; emit finished(false); return; }
+	multithread(CameraTask::POSTPROCESS, 0);
+	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
 // * END MULTITHREADING
 	/*
 	ofstream fout;
@@ -639,34 +580,10 @@ ColorMapper::mapColorsZhouKoltun() {
 		point_color[i].r = avgcolors[i].r;
 		point_color[i].g = avgcolors[i].g;
 		point_color[i].b = avgcolors[i].b;
-
 	}
 
-// очистка
-	avgcolors.clear();
-	avgcolors.reserve(1);
-	point_normals.clear();
-	point_normals.reserve(1);
-
-// garbage collecting
-	for (int i = 0; i < camera_count; ++i) {
-		delete x[i];
-		delete camera_point_inds[i];
-		for (int lvl = 0; lvl < num_levels; ++lvl) {
-			delete [] scharrx_images[lvl][i];
-			delete [] scharry_images[lvl][i];
-			delete [] bw_images[lvl][i];
-		}
-		delete[] camdata[i]->dpt_weights;
-		delete camdata[i];
-	}
-
-	delete bigIdentity;
-
-	for (int i = 0; i < camerathreads_num; ++i) 
-		delete camera_threads[i];
-	camera_threads.clear();
-	while (!free_threads.empty()) free_threads.pop();
+	// clean threads
+	cancelThreads();
 
 	// add
 
@@ -677,30 +594,92 @@ ColorMapper::mapColorsZhouKoltun() {
 		// combining in a new model
 		_model->setColors((float*)&point_color[0], point_color.size());
 
-		delete mesh_vertices; mesh_vertices = NULL;
-		delete mesh_triangles; mesh_triangles = NULL;
-
 		// mesh ready
 		emit finished(true);
 	}
 	else {
-		cancelThreads();
 		emit finished(false);
 	}
 	
-	_started = false;
+	cleanData();
 
+	_started = false;
 }// 'end ZhouKoltun
 
-void 
-ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip) {
-	camerathread_mutex.lock();
+void
+ColorMapper::cleanData() {
+	// очистка
+	avgcolors.clear();
+	avgcolors.reserve(1);
+	point_normals.clear();
+	point_normals.reserve(1);
 
+	// garbage collecting
+	for (int i = 0; i < camera_count; ++i) {
+		delete x[i];
+		delete camera_point_inds[i];
+		for (int lvl = 0; lvl < num_levels; ++lvl) {
+			delete[] camdata[i]->scharrx[lvl];
+			delete[] camdata[i]->scharry[lvl];
+			delete[] camdata[i]->bw[lvl];
+		}
+		delete[] camdata[i]->scharrx;
+		delete[] camdata[i]->scharry;
+		delete[] camdata[i]->bw;
+		delete[] camdata[i]->ip;
+		delete[] camdata[i]->dpt_weights;
+
+		delete camdata[i];
+	}
+
+	delete bigIdentity;
+
+	delete mesh_vertices; mesh_vertices = NULL;
+	delete mesh_triangles; mesh_triangles = NULL;
+	_cameras.clear();
+}
+
+
+// THREADS
+
+// prepare threads
+void 
+ColorMapper::prepareThreads(int num) {
+	for (int i = 0; i < camerathreads_num; ++i) {
+		CameraThread* thread = new CameraThread();
+		thread->threadId = i;
+		connect(thread, &CameraThread::finished, this, &ColorMapper::cameraTaskFinished);
+		connect(thread, &CameraThread::error, this, &ColorMapper::cameraTaskError);
+		camera_threads.push_back(thread);
+	}
+}
+
+// stop and delete threads
+void 
+ColorMapper::cancelThreads() {
+	if (camera_threads.size() > 0) {
+		while (!free_threads.empty())
+			free_threads.pop();
+		for (int i = 0; i < camera_threads.size(); ++i) {
+			if (camera_threads[i]->isRunning()) {
+				camera_threads[i]->quit();
+				camera_threads[i]->wait();
+			}
+			delete camera_threads[i];
+		}
+		camera_threads.clear();
+	}
+}
+
+void 
+ColorMapper::multithread(CameraTask task, int curr_lvl) {
+	AlgoParams ap = algoparams_lvl[curr_lvl];
+
+	camerathread_mutex.lock();
 	while (!free_threads.empty())
 		free_threads.pop();
 	for (int i = 0; i < camerathreads_num; ++i)
 		free_threads.push(i);
-
 	camerathread_mutex.unlock();
 	try {
 		int currentcam = 0;
@@ -717,6 +696,7 @@ ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip) {
 				thread->task = task;
 				thread->aparam = ap;
 				thread->currentcam = currentcam;
+				thread->current_lvl = curr_lvl;
 				thread->cam = _cameras[currentcam];
 				thread->camdata = camdata[currentcam];
 				thread->mesh_vertices = mesh_vertices;
@@ -724,6 +704,10 @@ ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip) {
 				if (task == PREPROCESS) {
 					thread->mesh_triangles = mesh_triangles;
 					thread->camera_point_inds = camera_point_inds[currentcam];
+				}
+				if (task == BWCOLORS) {
+					thread->camera_point_inds = camera_point_inds[currentcam];
+					thread->x = x[currentcam];
 				}
 				if (task == ALGORITHM) {
 					thread->camera_point_inds = camera_point_inds[currentcam];
@@ -740,13 +724,16 @@ ColorMapper::multithread(CameraTask task, AlgoParams ap, iparams cip) {
 
 				switch (task) {
 				case PREPROCESS:
-					emit message(QString::fromLocal8Bit("Preprocessing %1/%2").arg(currentcam + 1).arg(camera_count), (int)((100.0f*(float)currentcam) / camera_count));
+					emit message(QString::fromLocal8Bit("Preprocessing %1/%2").arg(currentcam + 1).arg(camera_count), 100.0f * (float)currentcam / camera_count);
 					break;
 				case ALGORITHM:
 					emit message(QString::fromLocal8Bit("Iteration %1 - Image %2").arg(iteration + 1).arg(currentcam), 100.0f * (float)currentcam / camera_count);
 					break;
 				case POSTPROCESS:
-					emit message(QString::fromLocal8Bit("Postprocessing %1/%2").arg(currentcam + 1).arg(camera_count), (int)((100.0f*(float)currentcam) / camera_count));
+					emit message(QString::fromLocal8Bit("Postprocessing %1/%2").arg(currentcam + 1).arg(camera_count), 100.0f * (float)currentcam / camera_count);
+					break;
+				case BWCOLORS:
+					emit message(QString::fromStdString("BW"), 100);
 					break;
 				}
 

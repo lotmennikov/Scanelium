@@ -2,6 +2,8 @@
 #include "filters.h"
 #include <queue>
 
+const double eps = 0.000000001;
+
 Eigen::Vector2d Ufunc(const Eigen::Vector4d& pt, iparams ip, bool check) {
 	Eigen::Vector2d u;
 	if (pt(2) > 0)

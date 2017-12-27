@@ -53,6 +53,7 @@ private:
 	bool increase_model;
 
 // inside algorithm
+	int num_levels;
 	int current_lvl;
 	int iteration;
 	std::vector<img_data*> camdata;
@@ -61,6 +62,13 @@ private:
 	std::vector<Frame*> _cameras;
 	std::vector<Model::PointXYZ>* mesh_vertices;
 	std::vector<Model::Triangle>* mesh_triangles;
+
+	// multiple levels
+	std::vector<AlgoParams> algoparams_lvl;
+	// one level
+	std::vector<std::vector<float>> dpt_render;
+
+	std::vector<std::vector<point_bw>*> camera_point_inds;
 
 	std::vector<Eigen::VectorXd*> x;
 // output
@@ -80,9 +88,14 @@ private:
 
 // methods
 	void run();
+	void prepareThreads(int num);
+	void multithread(CameraTask task, int curr_lvl);
 	void cancelThreads();
+
+	void prepareData(iparams ip, AlgoParams ap);
+	void cleanData();
+
 	void increaseVertexCount();
-	void multithread(CameraTask task, AlgoParams ap, iparams cip);
 	void computePointNormals();
 	void renderPose(std::vector<float>& dpt, Eigen::Matrix4f pose, iparams ip);
 public:
@@ -93,12 +106,6 @@ public:
 	static std::vector<average_color> avgcolors;
 	static std::vector<normal> point_normals;
 	static Eigen::SparseMatrix<double>* bigIdentity;
-
-	std::vector<std::vector<float*> > bw_images;
-	std::vector<std::vector<float*> > scharrx_images;
-	std::vector<std::vector<float*> > scharry_images;
-
-	std::vector<std::vector<point_bw>*> camera_point_inds;
 public:
 
 	ColorMapper();
