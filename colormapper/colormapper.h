@@ -21,6 +21,13 @@
 
 #include "colormapper_global.h"
 
+struct colormap_settings {
+	int num_iterations;
+	int num_threads;
+	bool increase_model;
+	bool use_imgpyr;
+};
+
 class COLORMAPPER_EXPORT ColorMapper : public QObject
 {
 	Q_OBJECT
@@ -51,6 +58,7 @@ private:
 	colormap_settings _col_set;
 	int iteration_count;
 	bool increase_model;
+	bool use_img_pyr;
 
 // inside algorithm
 	int num_levels;
@@ -97,6 +105,7 @@ private:
 
 	void increaseVertexCount();
 	void computePointNormals();
+	void computeBWError(int lvl, double& E, int& cnt_e);
 	void renderPose(std::vector<float>& dpt, Eigen::Matrix4f pose, iparams ip);
 public:
 	void mapColorsZhouKoltun();
@@ -132,6 +141,7 @@ signals:
 	void renderRequest(QMatrix4x4 pose, iparams ip);
 
 	void message(QString message, int progress);
+	void refreshCamGrid(std::vector<std::vector<float>> grid, int grid_x, int grid_y);
 	void refreshResidualError(double initial, double current);
 	void finished(bool);
 	void error(QString title, QString message);

@@ -28,6 +28,7 @@ Controller::Controller() : QObject(NULL) {
 	emit recSettingsUpdate(_rec_set);
 
 	_col_set.increase_model = false;
+	_col_set.use_imgpyr = false;
 	_col_set.num_iterations = 1;
 	_col_set.num_threads = 4;
 
@@ -59,6 +60,7 @@ Controller::Controller() : QObject(NULL) {
 	connect(_cm, &ColorMapper::error, this, &Controller::errorBox);
 	connect(_cm, &ColorMapper::finished, this, &Controller::colormapFinished);
 	connect(_cm, &ColorMapper::renderRequest, this, &Controller::renderRequest);
+	connect(_cm, &ColorMapper::refreshCamGrid, this, &Controller::camgridUpdate);
 }
 
 void Controller::init() {
@@ -579,6 +581,11 @@ void Controller::setNumColormapThreads(int num) {
 void Controller::setIncreaseModel(bool inc) {
 	if (_state != ProgramState::COLOR) return;
 	_col_set.increase_model = inc;
+}
+
+void Controller::setUseImgPyr(bool uip) {
+	if (_state != ProgramState::COLOR) return;
+	_col_set.use_imgpyr = uip;
 }
 
 void Controller::setFocalLength(float fx, float fy) {

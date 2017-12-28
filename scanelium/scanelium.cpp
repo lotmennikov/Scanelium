@@ -17,6 +17,7 @@ Scanelium::Scanelium(QWidget *parent)
 
 	qRegisterMetaType<QVector<QVector3D>>("QVector<QVector3D>");
 	qRegisterMetaType<std::vector<unsigned short>>("std::vector<unsigned short>");
+	qRegisterMetaType<std::vector<std::vector<float>> >("std::vector<std::vector<float>>");
 	qRegisterMetaType<std::vector<float>>("std::vector<float>");
 	qRegisterMetaType<rec_settings>("rec_settings");
 	qRegisterMetaType<Model::Ptr>("Model::Ptr");
@@ -37,6 +38,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(_controller, &Controller::framesUpdate, this, &Scanelium::refreshFramesNumber);
 	connect(_controller, &Controller::poseDiffUpdate, this, &Scanelium::refreshPoseDiff);
 	connect(_controller, &Controller::colormapErrorUpdate, this, &Scanelium::refreshResidualError);
+	connect(_controller, &Controller::camgridUpdate, ui.bigViewer, &glWidget::setCameraImgGrid);
 	connect(_controller, &Controller::errorBox, this, &Scanelium::showError);
 	connect(_controller, &Controller::askConfirmation, this, &Scanelium::confirmDialog);
 	connect(_controller, &Controller::showSoftStopColormap, this, &Scanelium::showSoftStopButton);
@@ -47,6 +49,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.recordCheckBox, &QCheckBox::stateChanged, this, &Scanelium::recordingBoxChecked);
 	connect(ui.recordOnlyBox, &QCheckBox::stateChanged, _controller, &Controller::setRecordOnly);
 	connect(ui.detailCheckBox, &QCheckBox::stateChanged, _controller, &Controller::setIncreaseModel);
+	connect(ui.imgPyrBox, &QCheckBox::stateChanged, _controller, &Controller::setUseImgPyr);
 
 	connect(ui.colorResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(colorComboIndexChanged(int)));
 	connect(ui.depthResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(depthComboIndexChanged(int)));

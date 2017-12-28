@@ -100,7 +100,7 @@ QToolBox {
 </string>
         </property>
         <property name="currentIndex">
-         <number>0</number>
+         <number>2</number>
         </property>
         <widget class="QWidget" name="initPage">
          <property name="geometry">
@@ -623,6 +623,13 @@ QToolBox {
             </property>
             <property name="checked">
              <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="imgPyrBox">
+            <property name="text">
+             <string>Use coarse-to-fine pyramid</string>
             </property>
            </widget>
           </item>

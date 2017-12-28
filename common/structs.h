@@ -147,12 +147,6 @@ struct rec_settings {
 	int snapshot_rate;
 };
 
-struct colormap_settings {
-	int num_iterations;
-	int num_threads;
-	bool increase_model;
-};
-
 struct iparams {
 	float fx;
 	float fy;

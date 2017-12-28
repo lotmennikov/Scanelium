@@ -32,7 +32,7 @@ class glWidget : public QGLWidget, protected QOpenGLFunctions
 	Q_OBJECT
 private:
 	QMutex texture_mutex;
-	QMutex cloud_mutex;
+	QMutex data_mutex;
 
 	ProgramState state;
 	rec_settings _rec_set;
@@ -89,13 +89,17 @@ private:
 
 	QVector3D offset;
 	QVector<QMatrix4x4> camposes;
+
+	float cam_ratio, cam_size;
+	QVector<QVector<QVector3D>> camgrids;
+
 	QVector<float> cam_points;
 	QVector<unsigned int> cam_inds;
 
 
 	void drawGrid();
 	void drawFrame();
-	void drawCamera(QMatrix4x4 pose, QColor color);
+	void drawCamera(QMatrix4x4 pose, QColor color, int num = -1);
 	void drawCloud();
 	void drawMesh();
 
@@ -125,7 +129,7 @@ public slots :
 	void setPolygonMesh(Model::Ptr);
 
 	void newCameraPose(QMatrix4x4);
-
+	void setCameraImgGrid(std::vector<std::vector<float>> grids, int grid_x, int grid_y);
 	// renderer
 	void render(QMatrix4x4 pose, iparams params);
 };

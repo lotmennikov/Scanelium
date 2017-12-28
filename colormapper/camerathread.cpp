@@ -146,28 +146,8 @@ void CameraThread::computedx() {
 
 		camdata->TransM = eTrotation(dx, camdata->TransM);
 
-		computePointBW();
+//		computePointBW();
 
-		/*
-		Matrix4d transf = camdata->TransM;
-		it = camera_point_inds->begin();
-		for (;it != camera_point_inds->end(); it++) {
-			Vector4d pnt;
-			pnt(0) = mesh_vertices->operator[]((*it).index).x;
-			pnt(1) = mesh_vertices->operator[]((*it).index).y;
-			pnt(2) = mesh_vertices->operator[]((*it).index).z;
-			pnt(3) = 1;
-
-			Vector4d initG = Gfunc(pnt, transf);
-			Vector2d initU = Ufunc(initG, camdata->ip);
-			Vector2d initF = Ffunc(initU, *x, aparam);
-			if (!isnan(initF(0))) {
-				it->bw = compute_value(camdata->bw, initF(0), initF(1), camdata->ip);
-			} else {
-				//	cout << "Bad coordinates : " << initU << endl;
-				it->bw = -1;
-			}		
-		}*/
 	} catch (const std::exception& ex) {
 		cout << "Thread "<< threadId << " exception " << ex.what() << endl;
 		if 	(locked)

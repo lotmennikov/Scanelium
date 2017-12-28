@@ -28,8 +28,9 @@ glWidget::glWidget(QWidget *parent) :
 	cam_points = QVector<float>();
 	cam_points.reserve(5 * 3);
 
-	float cam_ratio = 640.f / 480.f;//half edge length
-	float cam_size = 0.05f;
+	cam_ratio = 640.f / 480.f;//half edge length
+	cam_size = 0.05f;
+	
 	cam_points << 0 << 0 << 0
 		<< -cam_ratio * cam_size << -cam_size << cam_size*1.5f
 		<< -cam_ratio * cam_size << cam_size << cam_size*1.5f
@@ -233,7 +234,7 @@ void glWidget::drawGrid() {
 	lineProgram.release();
 }
 
-void glWidget::drawCamera(QMatrix4x4 pose, QColor color) {
+void glWidget::drawCamera(QMatrix4x4 pose, QColor color, int num) {
 	lineProgram.bind();
 
 	camBuffer.bind();
@@ -254,19 +255,27 @@ void glWidget::drawCamera(QMatrix4x4 pose, QColor color) {
 
 	camindBuffer.release();
 	camBuffer.release();
-	lineProgram.release();
 
+	// draw grid
+	if (num != -1 && camgrids.size() > num) {
+		lineProgram.setUniformValue("color", QColor(255, 255, 0));
+		lineProgram.setAttributeArray("vertex", camgrids[num].constData());
+		lineProgram.enableAttributeArray("vertex");
+		glDrawArrays(GL_LINES, 0, camgrids[num].size());
+		lineProgram.disableAttributeArray("vertex");
+	}
+	
+	lineProgram.release();
 }
 
 void glWidget::drawCloud() {
 	if (cloud_points.size() > 0) {
-		cloud_mutex.lock();
+		data_mutex.lock();
 
 		QMatrix4x4 mcorrMatrix = QMatrix4x4();
 		mcorrMatrix(0, 0) = -1;
 		mcorrMatrix(1, 1) = -1;
 		QMatrix4x4 mOffsetMatrix = QMatrix4x4();
-		offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
 		mOffsetMatrix.translate(offset);
 
 		QMatrix4x4 mPoseMatrix = computeCamPose(_rec_set);
@@ -285,7 +294,7 @@ void glWidget::drawCloud() {
 		colorProgram.disableAttributeArray("vertex");
 		colorProgram.release();
 
-		cloud_mutex.unlock();
+		data_mutex.unlock();
 	}
 }
 
@@ -313,7 +322,7 @@ void glWidget::drawFrame() {
 
 void glWidget::drawMesh() {
 	if (initialized) {
-		cloud_mutex.lock();
+		data_mutex.lock();
 
 		if (!draw_color) {
 
@@ -321,8 +330,6 @@ void glWidget::drawMesh() {
 
 			meshBuffer.bind();
 			meshindBuffer.bind();
-
-			offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
 
 			QMatrix4x4 mcorrMatrix = QMatrix4x4();
 			mcorrMatrix(0, 0) = -1;
@@ -372,9 +379,9 @@ void glWidget::drawMesh() {
 		}
 
 		for (int i = 0; i < camposes.size(); ++i)
-			drawCamera(camposes[i], QColor(255, 255, 255));
+			drawCamera(camposes[i], QColor(255, 255, 255), i);
 
-		cloud_mutex.unlock();
+		data_mutex.unlock();
 	}
 }
 
@@ -516,6 +523,7 @@ void glWidget::stateChanged(ProgramState st) {
 
 void glWidget::refreshRecSettings(rec_settings rc) {
 	this->_rec_set = rc;
+	this->offset = QVector3D(-_rec_set.volume_size / 2, -_rec_set.volume_size / 2 * (_rec_set.doubleY ? 2 : 1), -_rec_set.volume_size / 2);
 
 	this->updateGL();
 }
@@ -537,11 +545,11 @@ void glWidget::refreshTexture(const QImage& img) {
 }
 
 void glWidget::refreshCloud(QVector<QVector3D> pnts, QVector<QVector3D> clrs) {
-	cloud_mutex.lock();
+	data_mutex.lock();
 	this->cloud_points = pnts;
 	this->cloud_colors = clrs;
 
-	cloud_mutex.unlock();
+	data_mutex.unlock();
 	this->updateGL();
 }
 
@@ -560,7 +568,7 @@ void cross(cn_vertex v0, cn_vertex v1, cn_vertex v2, float& nx, float& ny, float
 void glWidget::setPolygonMesh(Model::Ptr model) {
 	qDebug("glWidget::setPolygonMesh");
 
-	cloud_mutex.lock();
+	data_mutex.lock();
 	initialized = false;
 
 // init arrays
@@ -570,6 +578,8 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 	std::vector<int> face_per_point;
 
 	bool has_color = model->hasColor();
+
+	QVector3D average_point(0, 0, 0);
 
 	if (model->isVBO()) {
 		int points_size;
@@ -581,6 +591,8 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 		int i = 0;
 		for (auto it = model->verts_begin(); it != model->verts_end(); ++it, ++i) {
 			Model::PointXYZ p = *it;
+
+			average_point += QVector3D(p.x, p.y, p.z);
 
 			color_vertex vert;
 			vert.vertex[0] = p.x;
@@ -631,6 +643,7 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 		int i = 0;
 		for (auto it = model->verts_begin(); it != model->verts_end(); ++it, ++i) {
 			Model::PointXYZ p = *it;
+			average_point += QVector3D(p.x, p.y, p.z);
 
 			cn_vertex vert;
 			vert.vertex[0] = p.x;
@@ -688,6 +701,9 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 			}
 		}
 	}
+
+	average_point /= mesh_points.size();
+	offset = -average_point;
 // ----------
 	meshBuffer = QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	meshBuffer.create();
@@ -707,7 +723,7 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 	draw_color = has_color;
 	
 	camposes.clear();
-	cloud_mutex.unlock();
+	data_mutex.unlock();
 	for (int i = 0; i < model->getFramesSize(); ++i)
 		newCameraPose(toQtPose(model->getFrame(i)->pose.rotation(), model->getFrame(i)->pose.translation()));
 	
@@ -715,9 +731,35 @@ void glWidget::setPolygonMesh(Model::Ptr model) {
 }
 
 void glWidget::newCameraPose(QMatrix4x4 pose) {
-	cloud_mutex.lock();
+	data_mutex.lock();
 
 	camposes.push_back(pose);
 
-	cloud_mutex.unlock();
+	data_mutex.unlock();
+}
+
+void glWidget::setCameraImgGrid(std::vector<std::vector<float>> grids, int grid_x, int grid_y) {
+	data_mutex.lock();
+
+	camgrids.clear();
+	for (int i = 0; i < grids.size(); ++i) {
+		QVector<QVector3D> camgrid;
+		for (int y = 0; y < grid_y; ++y) {
+			for (int x = 0; x < grid_x; ++x) {
+				if (y < grid_y - 1) {
+					camgrid.push_back(QVector3D(grids[i][2 * (y*grid_x + x) + 0] * cam_ratio * cam_size, grids[i][2 * (y*grid_x + x) + 1] * cam_size, 1.5f*cam_size));
+					camgrid.push_back(QVector3D(grids[i][2 * ((y+1)*grid_x + x) + 0] * cam_ratio * cam_size, grids[i][2 * ((y + 1)*grid_x + x) + 1] * cam_size, 1.5f*cam_size));
+				}
+				if (x < grid_x - 1) {
+					camgrid.push_back(QVector3D(grids[i][2 * (y*grid_x + x) + 0] * cam_ratio * cam_size, grids[i][2 * (y*grid_x + x) + 1] * cam_size, 1.5f*cam_size));
+					camgrid.push_back(QVector3D(grids[i][2 * (y*grid_x + (x+1)) + 0] * cam_ratio * cam_size, grids[i][2 * (y*grid_x + (x+1)) + 1] * cam_size, 1.5f*cam_size));
+				}
+			}
+		}
+		camgrids.push_back(camgrid);
+	}
+
+	data_mutex.unlock();
+
+	this->updateGL();
 }

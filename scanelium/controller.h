@@ -87,6 +87,8 @@ public slots:
 	void setNumColormapThreads(int);
 	// inrease detalization (more mesh vertices)
 	void setIncreaseModel(bool);
+	// use coarse-to-fine image pyramid
+	void setUseImgPyr(bool uip);
 	// set camera focal lenghts
 	void setFocalLength(float fx, float fy);
 	// set rate of saving color images
@@ -152,4 +154,5 @@ signals:
 	void poseUpdate(QMatrix4x4);
 	void framesUpdate(int count);
 	void colormapErrorUpdate(double, double);
+	void camgridUpdate(std::vector<std::vector<float>> grid, int grid_x, int grid_y);
 };
