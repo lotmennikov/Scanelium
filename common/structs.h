@@ -129,22 +129,25 @@ struct average_color
 struct cam_settings {
 	int color_res;
 	int depth_res;
+	int depth_framerate;
 	float fx;
 	float fy;
 };
 
 struct rec_settings {
-	float volume_size;
-	int grid_size;
-	bool doubleY;
-	int camera_pose;
+	float volume_size;		// size of the scene (cube edge length)
+	int grid_size;			// size of voxel grid
+	bool doubleY;			// double y size of the scen
+	int camera_pose;		// camera position relative to the scene (index)
 
-	float camera_x_angle;
-	float camera_y_angle;
-	float camera_distance;
-	bool recording;
-	bool recording_only;
-	int snapshot_rate;
+	float camera_x_angle;	// custom camera pose
+	float camera_y_angle;	// custom camera pose
+	float camera_distance;	// custom camera pose
+	bool recording;			// record oni file
+	bool recording_only;	// no reconstruction
+	bool from_file;			// reconstruct from file
+	bool each_frame;		// process every frame (from file)
+	int snapshot_rate;		// frequency of color image selection (ms)
 };
 
 struct iparams {

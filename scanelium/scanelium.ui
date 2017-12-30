@@ -100,15 +100,15 @@ QToolBox {
 </string>
         </property>
         <property name="currentIndex">
-         <number>2</number>
+         <number>0</number>
         </property>
         <widget class="QWidget" name="initPage">
          <property name="geometry">
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>230</width>
-           <height>544</height>
+           <width>213</width>
+           <height>565</height>
           </rect>
          </property>
          <attribute name="label">
@@ -225,6 +225,13 @@ QToolBox {
                 </widget>
                </item>
               </layout>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="everyframeBox">
+               <property name="text">
+                <string>Use each depth frame</string>
+               </property>
+              </widget>
              </item>
             </layout>
            </widget>
@@ -473,8 +480,8 @@ QToolBox {
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>230</width>
-           <height>544</height>
+           <width>108</width>
+           <height>152</height>
           </rect>
          </property>
          <attribute name="label">
@@ -681,8 +688,8 @@ QToolBox {
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>230</width>
-           <height>544</height>
+           <width>98</width>
+           <height>47</height>
           </rect>
          </property>
          <attribute name="label">

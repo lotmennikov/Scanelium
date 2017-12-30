@@ -89,6 +89,8 @@ public slots:
 	void setIncreaseModel(bool);
 	// use coarse-to-fine image pyramid
 	void setUseImgPyr(bool uip);
+	// use every depth frame
+	void setUseEachFrame(bool uef);
 	// set camera focal lenghts
 	void setFocalLength(float fx, float fy);
 	// set rate of saving color images
@@ -143,10 +145,11 @@ signals:
 	void errorBox(QString, QString);
 	void showSoftStopColormap(bool);
 	void showProgress(bool, int);
-	
+
 	//  UPDATES
 	void statusUpdate(QString);
 	void recSettingsUpdate(rec_settings);
+	void settingsUpdate(cam_settings camset, rec_settings rec_set);
 	void cloudUpdate(QVector<QVector3D>, QVector<QVector3D>);
 	void renderUpdate(QImage);
 	void poseDiffUpdate(float, float);

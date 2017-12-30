@@ -407,15 +407,15 @@ ColorMapper::mapColorsZhouKoltun() {
 	double PrevResid = 1;
 	int resid_lower = 0;
 
-	double norm_lambda = 0.05 * 21 * 17 * 1280 * 1024; // reference lamdba * reference grid size * reference image size
+	double norm_lambda = 0.1 /* 21 * 17*/ * 1280 * 1024; // reference lamdba * reference image size
 
-	double lambda = norm_lambda / (double)(algoparams.gridsizex * algoparams.gridsizey * cip.width * cip.height);
+	double lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey*/ cip.width * cip.height);
 
 	// ITERATIONS <===================================================
 	bool level_up = true;
 	current_lvl = use_img_pyr ? (cip.width >= 640 ? 2 : 1) : 0;
 
-	lambda = norm_lambda / (double)(algoparams.gridsizex * algoparams.gridsizey * camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
+	lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
 	for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
 
 	cout << "Pyramid level: " << current_lvl << ", levels = " << current_lvl + 1 << ", lambda = " << lambda << endl;
@@ -486,7 +486,7 @@ ColorMapper::mapColorsZhouKoltun() {
 				}
 			}
 			current_lvl--;
-			lambda = norm_lambda / (double)(algoparams.gridsizex * algoparams.gridsizey * camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
+			lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
 
 			for (int i = algoparams_lvl[current_lvl].dof6; i < algoparams_lvl[current_lvl].matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
 

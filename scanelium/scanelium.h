@@ -61,6 +61,7 @@ public slots:
 	void recordingBoxChecked(int checked);
 	void tabIndexChanged(int index);	// from ui.scantab
 	void stateChanged(int index);		// from controller
+	void settingsChanged(cam_settings camset, rec_settings recset);
 
 	void colorComboIndexChanged(int index);
 	void depthComboIndexChanged(int index);

@@ -53,11 +53,13 @@ public:
 	int waitFrame();
 	int waitFrame(int stream);
 	openni::VideoFrameRef getImage(int data_type);
+	bool nextFrame(bool both = false);
 
 	// == Param setters
 	void syncTimestamp(bool sync);
 	void setRegistration(bool reg);
 	void setAutoWhiteBalanceAndExposure(bool on_off);
+	void returnToStart(); // only file
 	//	void setAutoExposure(bool exp);
 
 
@@ -66,6 +68,7 @@ public:
 	int getDepthResolutionY();
 	int getColorResolutionX();
 	int getColorResolutionY();
+	int getDepthFramerate();
 
 	int getAutoExposure();
 	int getAutoWB();

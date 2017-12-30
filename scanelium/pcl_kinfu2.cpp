@@ -61,6 +61,8 @@ bool PCL_Kinfu2::init(
 	kp.volume_pose = eigen2cv(pose).inv();
 	kp.icp_pose_angle_thres = kf::deg2rad(30.0f);
 	kp.icp_pose_dist_thres = 0.20f;
+	kp.tsdf_trunc_dist = std::max(0.01f, 5.0f * (size_x / grid_x));
+	kp.tsdf_max_weight = 128;
 
 	_init_pose = pose;
 	//kp.volume_pose = cv::Affine3f().translate(cv::Vec3f(-kp.volume_size[0] / 2, -kp.volume_size[1] / 2, 0.4f));

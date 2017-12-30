@@ -19,6 +19,7 @@ Scanelium::Scanelium(QWidget *parent)
 	qRegisterMetaType<std::vector<unsigned short>>("std::vector<unsigned short>");
 	qRegisterMetaType<std::vector<std::vector<float>> >("std::vector<std::vector<float>>");
 	qRegisterMetaType<std::vector<float>>("std::vector<float>");
+	qRegisterMetaType<std::string>("std::string");
 	qRegisterMetaType<rec_settings>("rec_settings");
 	qRegisterMetaType<Model::Ptr>("Model::Ptr");
 	qRegisterMetaType<iparams>("iparams");
@@ -35,6 +36,7 @@ Scanelium::Scanelium(QWidget *parent)
 
 	connect(_controller, &Controller::statusUpdate, this, &Scanelium::refreshStatus);
 	connect(_controller, &Controller::stateChanged, this, &Scanelium::stateChanged);
+	connect(_controller, &Controller::settingsUpdate, this, &Scanelium::settingsChanged);
 	connect(_controller, &Controller::framesUpdate, this, &Scanelium::refreshFramesNumber);
 	connect(_controller, &Controller::poseDiffUpdate, this, &Scanelium::refreshPoseDiff);
 	connect(_controller, &Controller::colormapErrorUpdate, this, &Scanelium::refreshResidualError);
@@ -50,7 +52,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.recordOnlyBox, &QCheckBox::stateChanged, _controller, &Controller::setRecordOnly);
 	connect(ui.detailCheckBox, &QCheckBox::stateChanged, _controller, &Controller::setIncreaseModel);
 	connect(ui.imgPyrBox, &QCheckBox::stateChanged, _controller, &Controller::setUseImgPyr);
-
+	connect(ui.everyframeBox, &QCheckBox::stateChanged, _controller, &Controller::setUseEachFrame);
 	connect(ui.colorResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(colorComboIndexChanged(int)));
 	connect(ui.depthResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(depthComboIndexChanged(int)));
 	connect(ui.camposeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(poseComboIndexChanged(int)));
@@ -81,6 +83,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.finishButton, &QPushButton::released, _controller, &Controller::stopColormap);
 	connect(ui.softStopButton, &QPushButton::released, _controller, &Controller::softStopColormap);
 	ui.softStopButton->setVisible(false);
+	ui.everyframeBox->setVisible(false);
 
 	statusProgress = new QProgressBar(NULL);
 	statusProgress->setMaximumHeight(16);
@@ -330,6 +333,42 @@ void Scanelium::stateChanged(int index) {
 		ui.scanTab->setCurrentIndex(index);
 	}
 }
+
+void Scanelium::settingsChanged(cam_settings camset, rec_settings recset) {
+	ui.colorResCombo->setCurrentIndex(camset.color_res);
+	ui.depthResCombo->setCurrentIndex(camset.depth_res);
+	ui.recordCheckBox->setChecked(recset.recording);
+	ui.recordOnlyBox->setChecked(recset.recording_only);
+
+	if (recset.from_file) {
+		ui.colorResCombo->setEnabled(false);
+		ui.depthResCombo->setEnabled(false);
+		ui.recordCheckBox->setEnabled(false);
+		ui.recordOnlyBox->setEnabled(false);
+
+		ui.everyframeBox->setVisible(true);
+		ui.everyframeBox->setChecked(recset.each_frame);
+	}
+	else {
+		ui.colorResCombo->setEnabled(true);
+		ui.depthResCombo->setEnabled(true);
+		ui.recordCheckBox->setEnabled(true);
+		ui.recordOnlyBox->setEnabled(true);
+
+		ui.everyframeBox->setVisible(false);
+	}
+	ui.sizeSlider->setValue((int)(10 * recset.volume_size));
+	ui.sizeLabel->setText(QString::fromLocal8Bit("Size: %1m cube").arg(recset.volume_size));
+	ui.gridSlider->setValue(recset.grid_size);
+	ui.gridLabel->setText(QString::fromLocal8Bit("Resolution: %1").arg(recset.grid_size));
+	ui.doubleYcheckBox->setChecked(recset.doubleY);
+
+	ui.camposeCombo->setCurrentIndex(recset.camera_pose);
+	ui.xAngleSlider->setValue(recset.camera_x_angle);
+	ui.yAngleSlider->setValue(recset.camera_y_angle);
+	ui.zDistanceSlider->setValue((int)(recset.camera_distance * 10));
+}
+
 
 void Scanelium::colorComboIndexChanged(int index) {
 	_controller->setCamRes(1, index);

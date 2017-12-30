@@ -11,6 +11,7 @@ Controller::Controller() : QObject(NULL) {
 
 	_cam_set.color_res = ColorResolution::COLOR_VGA;
 	_cam_set.depth_res = DepthResolution::DEPTH_VGA;
+	_cam_set.depth_framerate = 30;
 	_cam_set.fx = 541.316f;
 	_cam_set.fy = 541.316f;
 
@@ -19,6 +20,8 @@ Controller::Controller() : QObject(NULL) {
 	_rec_set.doubleY = false;
 	_rec_set.recording = false;
 	_rec_set.recording_only = false;
+	_rec_set.from_file = false;
+	_rec_set.each_frame = false;
 	_rec_set.camera_pose = CameraPose::CENTERFACE;
 	_rec_set.camera_distance = 0.9f;
 	_rec_set.camera_x_angle = 0;
@@ -69,24 +72,27 @@ void Controller::init() {
 	_threads[0].start();
 	_oni->moveToThread(&_threads[0]);
 
-	if (_oni->initDevice()) {
-	} else {
-		emit errorBox("Error", "Camera not found");
-	}
-
 	_threads[1].start();
 	_rc->moveToThread(&_threads[1]);
 
 	_threads[2].start();
 	_cm->moveToThread(&_threads[2]);
 
-	setState(ProgramState::INIT);
 
-/*
-	// kinfu and colormapper threads
-	kinfuthread->setPriority(QThread::Priority::HighPriority);
-	colorMapper->setPriority(QThread::Priority::HighPriority);
-	*/
+	if (_oni->initDevice()) {
+		// fine
+		setState(ProgramState::INIT);
+	}
+	else {
+		setState(NONE);
+		emit errorBox("Error", "Camera not found");
+	}
+
+	emit settingsUpdate(_cam_set, _rec_set);
+	emit recSettingsUpdate(_rec_set);
+
+//	_threads[1].setPriority(QThread::Priority::HighPriority);
+//	_threads[2].setPriority(QThread::Priority::HighPriority);
 }
 
 Controller::~Controller() {
@@ -130,37 +136,58 @@ void Controller::setState(ProgramState st) {
 	if (this->_state != st) {
 		this->_state = st;
 		switch (_state) {
+		case NONE:
+			if (_oni->isRunning()) _oni->stop();
+			if (_rc->isRunning()) _rc->finish();
+			if (_cm->isRunning()) _cm->hardStop();
+			break;
 		case INIT:
 			has_model = false;
 			unsaved_model = false;
-			if (_oni->isValid() && !_oni->isRunning()) {
-				_oni->setDepthMode(_cam_set.depth_res);
-				_oni->setColorMode(_cam_set.color_res);
-
-				color_last_index = -1;
-				depth_last_index = -1;
-				emit oniStart();
+			if (_oni->isValid()) {
+				if (!_oni->isRunning()) {
+					if (!_rec_set.from_file) {
+						_oni->setDepthMode(_cam_set.depth_res);
+						_oni->setColorMode(_cam_set.color_res);
+					}
+					color_last_index = -1;
+					depth_last_index = -1;
+					emit oniStart();
+				}
+				if (_rec_set.from_file)	_oni->returnToStart();
+			}
+			else {
+				setState(NONE);
+				return;
 			}
 			break;
 		case KINFU:
 			has_model = false;
 			unsaved_model = false;
-			if (_oni->isValid() && !_oni->isRunning()) {
-				_oni->setDepthMode(_cam_set.depth_res);
-				_oni->setColorMode(_cam_set.color_res);
-
-				color_last_index = -1;
-				depth_last_index = -1;
-				emit oniStart();
-			}
 			if (!_rec_set.recording_only && !_rc->isRunning()) {
 				_rc->init(_rec_set, _cam_set);
-				_oni->setAutoWhiteBalanceAndExposure(false);
 				emit reconstructionStart();
-			} 
+			}
+
+			if (_oni->isValid()) {
+				if (!_oni->isRunning()) {
+					_oni->setDepthMode(_cam_set.depth_res);
+					_oni->setColorMode(_cam_set.color_res);
+
+					color_last_index = -1;
+					depth_last_index = -1;
+					emit oniStart();
+				}
+				if (_rec_set.from_file)	_oni->returnToStart();
+
+				if (!_rec_set.from_file) _oni->setAutoWhiteBalanceAndExposure(false);
+			} else {
+				emit errorBox("Error", "No data source found");
+				setState(NONE);
+				return;
+			}
 			if (_rec_set.recording && !_oni->isRecording()) {
 				_oni->initRecorder(QDateTime::currentDateTime().toString("yyyy-MM-dd-hh-mm-ss").toStdString() + ".oni");
-				_oni->setAutoWhiteBalanceAndExposure(false);
 				_oni->startRec();
 			}
 			break;
@@ -315,8 +342,12 @@ void Controller::gotColor(QImage img, int width, int height, int index) {
 	switch (_state) {
 	case INIT:
 	{
-		if (color_last_index == depth_last_index || color_last_index > depth_last_index + 1)
+		if (color_last_index == depth_last_index || color_last_index > depth_last_index + 1) {
 			generateCloud();
+			if (_rec_set.from_file) {
+				_oni->stop(); // show only first frame;
+			}
+		}
 	}
 	break;
 
@@ -334,10 +365,15 @@ void Controller::gotColor(QImage img, int width, int height, int index) {
 }
 
 void Controller::oniEOF() {
+	qDebug("ONI EOF");
+	_oni->stop();
+
 	switch (_state) {
 	case INIT:
 		break;
 	case KINFU:
+		if (_rc->isRunning()) _rc->finishAllFrames();
+		//stopReconstruction();
 		break;
 	default:
 		break;
@@ -353,6 +389,8 @@ void Controller::oniError(std::string err) {
 // ===========
 
 void Controller::startReconstruction() {
+	if (_state == NONE) return;
+
 	switch (_state) {
 	case INIT:
 		setState(KINFU);
@@ -418,6 +456,7 @@ void Controller::reconstructionFinished(bool has_model) {
 		emit meshUpdate(_model);
 		emit statusUpdate(QString::fromLocal8Bit("Mesh model: %1 vertices, %2 triangles").arg(_model->getVertsSize()).arg(_model->getIndsSize() / 3));
 
+		_rc->clearModel();
 		setState(COLOR);
 	}
 	else {
@@ -512,6 +551,9 @@ void Controller::setVolumeSize(float vsize) {
 
 	if (vsize >= 0.5f && vsize <= 5.0f) {
 		_rec_set.volume_size = vsize;
+
+		if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+
 		emit recSettingsUpdate(_rec_set);
 	}
 }
@@ -524,12 +566,14 @@ void Controller::setGridSize(float gsize) {
 	}
 }
 
-
 void Controller::setCameraPose(int pose) {
 	if (_state != ProgramState::INIT) return;
 
 	if (pose == CameraPose::CENTER || pose == CameraPose::CENTERFACE || pose == CameraPose::CUSTOM) {
 		_rec_set.camera_pose = pose;
+
+		if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+
 		emit recSettingsUpdate(_rec_set);
 	}
 	else
@@ -544,6 +588,8 @@ void Controller::setCustomPose(float xangle, float yangle, float zdist) {
 		_rec_set.camera_x_angle = xangle;
 		_rec_set.camera_y_angle = yangle;
 
+		if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+
 		emit recSettingsUpdate(_rec_set);
 	}
 }
@@ -552,6 +598,9 @@ void Controller::setDoubleY(bool dy) {
 	if (_state != ProgramState::INIT) return;
 	
 	this->_rec_set.doubleY = dy;
+
+	if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+
 	emit recSettingsUpdate(this->_rec_set);
 }
 
@@ -586,6 +635,11 @@ void Controller::setIncreaseModel(bool inc) {
 void Controller::setUseImgPyr(bool uip) {
 	if (_state != ProgramState::COLOR) return;
 	_col_set.use_imgpyr = uip;
+}
+
+void Controller::setUseEachFrame(bool uef) {
+	if (_state != ProgramState::INIT) return;
+	_rec_set.each_frame = uef;
 }
 
 void Controller::setFocalLength(float fx, float fy) {
@@ -732,6 +786,31 @@ void Controller::openFile(QString filename) {
 		}
 	} 
 	if (f_info.suffix().toLower().compare("oni") == 0) {
-		// TODO
+		if (_oni->isValid() && _oni->isRunning()) _oni->stop();
+
+		emit statusUpdate(QString("Opening..."));
+		if (_oni->initFile(filename.toStdString())) {
+			emit statusUpdate(QString("Loaded oni file"));
+			// fine
+			_rec_set.from_file = true;
+			_rec_set.each_frame = true;
+			_rec_set.recording = false;
+			_rec_set.recording_only = false;
+
+			int cwidth = _oni->getColorResolutionX();
+			_cam_set.color_res = cwidth == 1280 ? 2 : (cwidth == 640 ? 1 : 0);
+			int dwidth = _oni->getDepthResolutionX();
+			_cam_set.depth_res = dwidth == 640 ? 1 : 0;
+			int framerate = _oni->getDepthFramerate();
+			_cam_set.depth_framerate = framerate;
+
+			emit settingsUpdate(_cam_set, _rec_set);
+			emit recSettingsUpdate(_rec_set);
+
+			setState(INIT);
+		}
+		else {
+			emit errorBox("Error", "Not an ONI file.");
+		}
 	}
 }

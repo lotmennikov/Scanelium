@@ -56,6 +56,7 @@ bool Reconstructor::init(rec_settings rec_set, cam_settings cam_set) {
 
 	
 	_has_model = false;
+	_finish_frames = false;
 
 	this->rec_set = rec_set;
 	this->cam_set = cam_set;
@@ -100,7 +101,8 @@ bool Reconstructor::start() {
 	_stop = false;
 	_started = true;
 
-	timer.start();
+	if (rec_set.each_frame) frame_counter = 0; else timer.restart();
+
 	_ip->clear();
 	if (!_ip->isRunning())
 		_ip->start();
@@ -116,19 +118,38 @@ bool Reconstructor::isRunning() {
 void Reconstructor::update() {
 	qDebug("Reconstructor::update");
 
+	data_mutex.lock();
+	if (_finish_frames && seq_depth.empty())
+	{
+		data_mutex.unlock();
+		_started = false;
+		finish(true);
+		return;
+	}
+	data_mutex.unlock();
+
 	_processing = true;
 	if (_started) {
 		if (!_stop) {
-			if (current_dpt > last_processed_dpt) {
-				qDebug(QString("Recontructor - process frame %1").arg(current_dpt).toStdString().c_str());
+			if ((rec_set.each_frame && !seq_depth.empty() && seq_depth.front().first > last_processed_dpt) || 
+				(!rec_set.each_frame && current_dpt > last_processed_dpt)) {
+				
 				data_mutex.lock();
-				auto dpt = this->last_dpt;
-				last_processed_dpt = current_dpt;
+				vector<unsigned short> dpt;
+				if (rec_set.each_frame) {
+					dpt = seq_depth.front().second;
+					last_processed_dpt = seq_depth.front().first;
+				} else {
+					dpt = this->last_dpt;
+					last_processed_dpt = current_dpt;
+				}
 				data_mutex.unlock();
+				qDebug(QString("Recontructor - process frame %1").arg(last_processed_dpt).toStdString().c_str());
+
+				if (rec_set.each_frame) ++frame_counter;
+
 				if (_kf->update(&dpt[0])) {
 					emit message("Tracking...", 0);
-					//if (_kf->hadReset())
-					//	emit hadReset();
 
 					Affine3f pose;
 					pose = _kf->getPose();
@@ -156,7 +177,8 @@ void Reconstructor::update() {
 					else qDebug("Reconstructor - no img");
 
 					checkSequences();
-					if (timer.elapsed() > rec_set.snapshot_rate) {
+					if ((rec_set.each_frame && (1000 * frame_counter) / cam_set.depth_framerate >= rec_set.snapshot_rate) || 
+						(!rec_set.each_frame && timer.elapsed() >= rec_set.snapshot_rate)) {
 						Frame* bestFrame = _ip->getBestCam();
 						if (bestFrame != NULL) {
 							saved_frames.push_back(bestFrame);
@@ -164,7 +186,8 @@ void Reconstructor::update() {
 							emit framesUpdate(saved_frames.size());
 							emit newPose(toQtPose(bestFrame->pose.rotation(), bestFrame->pose.translation()));
 						}
-						timer.restart();
+						if (rec_set.each_frame) frame_counter = 0; 
+						else timer.restart();
 					}
 				}
 				else {
@@ -179,6 +202,7 @@ void Reconstructor::update() {
 			}
 			else {
 				qDebug("Recontructor - no frame");
+				checkSequences();
 				Sleep(1);
 			}
 			emit ready();
@@ -196,7 +220,8 @@ bool Reconstructor::reset() {
 		_kf->reset();
 		_ip->clear();
 
-		timer.restart();
+		if (rec_set.each_frame) frame_counter = 0; else timer.restart();
+
 		last_processed_dpt = -1;
 		last_processed_rgb = -1;
 		current_dpt = -1;
@@ -213,6 +238,10 @@ bool Reconstructor::reset() {
 	}
 	else
 		return false;
+}
+
+void Reconstructor::finishAllFrames() {
+	_finish_frames = true;
 }
 
 bool Reconstructor::finish(bool extract) {
@@ -270,8 +299,8 @@ bool Reconstructor::finish(bool extract) {
 void Reconstructor::checkSequences() {
 	data_mutex.lock();
 
-	while (seq_depth.size() > 30) seq_depth.pop_front();
-	while (seq_image.size() > 30) seq_image.pop_front();
+	if (!rec_set.each_frame) while (seq_depth.size() > 30) seq_depth.pop_front();
+	if (!rec_set.each_frame) while (seq_image.size() > 30) seq_image.pop_front();
 	while (seq_pose.size() > 30) seq_pose.pop_front();
 
 	while (seq_depth.size() > 0 && seq_image.size() > 0 && seq_pose.size() > 0) {
@@ -323,10 +352,26 @@ void Reconstructor::checkSequences() {
 			}
 			else {
 				int min_ind = min(min(ind_depth, ind_pose), ind_image);
-				if (ind_depth == min_ind) seq_depth.pop_front();
+				if (ind_depth == min_ind && (!rec_set.each_frame || ind_pose == ind_depth)) {
+					qDebug(QString("Pop depth %1").arg(seq_depth.front().first).toStdString().c_str());
+					seq_depth.pop_front();
+				}
 				if (ind_image == min_ind) seq_image.pop_front();
 				if (ind_pose == min_ind) seq_pose.pop_front();
 			}
+		}
+	}
+
+	// prevent dead lock
+	if (rec_set.each_frame && _finish_frames && seq_image.empty()) {
+		while (!seq_pose.empty() &&
+			!seq_depth.empty() &&
+			seq_depth.front().first <= seq_pose.front().first) {
+
+			if (seq_depth.front().first == seq_pose.front().first)
+				seq_pose.pop_front();
+			seq_depth.pop_front();
+
 		}
 	}
 
@@ -341,6 +386,12 @@ void Reconstructor::clearSequences() {
 	seq_pose.clear();
 
 	data_mutex.unlock();
+}
+
+void Reconstructor::clearModel() {
+	_has_model = false;
+	_model.reset();
+	clearSequences();
 }
 
 bool Reconstructor::getModel(Model::Ptr& m_ptr) {
@@ -372,9 +423,17 @@ void Reconstructor::newColor(QImage new_rgb, int frame_index) {
 		seq_image.push_back(make_pair(current_rgb, new_rgb));
 	}
 	else {
-		current_rgb = -1;
-		while (!seq_image.empty()) seq_image.pop_back(); // only one must stay
-		seq_image.push_back(make_pair(-1, new_rgb));
+		if (this->rec_set.each_frame) {
+			current_rgb = current_dpt;
+			// insert if it comes after depth,  and there is no frame with the same index
+			if (current_rgb != -1 && (seq_image.empty() || seq_image.back().first != current_rgb)) 
+				seq_image.push_back(make_pair(current_rgb, new_rgb));
+		}
+		else {
+			current_rgb = -1;
+			while (!seq_image.empty()) seq_image.pop_back(); // only one must stay
+			seq_image.push_back(make_pair(-1, new_rgb));
+		}
 	}
 	
 	data_mutex.unlock();

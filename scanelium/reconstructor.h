@@ -30,7 +30,8 @@ class Reconstructor : public QObject {
 	int current_rgb;
 
 	QMutex data_mutex;
-	QElapsedTimer timer;
+	QElapsedTimer timer; // measure time in online reconstruction
+	int frame_counter;	 // measure time in offline reconstruction
 
 	rec_settings rec_set;
 	cam_settings cam_set;
@@ -41,6 +42,7 @@ class Reconstructor : public QObject {
 	bool _started;
 	bool _stop;
 	bool _processing;
+	bool _finish_frames;
 
 	bool _has_model;
 	Model::Ptr _model;
@@ -52,7 +54,6 @@ class Reconstructor : public QObject {
 
 	void checkSequences();
 	void clearSequences();
-
 public:
 	Reconstructor();
 
@@ -67,6 +68,11 @@ public:
 	bool isRunning();
 
 	bool getModel(Model::Ptr& m);
+
+	void clearModel();
+
+	// continue until all frames are processed
+	void finishAllFrames();
 
 public slots:
 
