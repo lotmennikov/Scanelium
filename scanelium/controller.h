@@ -44,6 +44,8 @@ private:
 
 	// convert depth map to point cloud and pass to viewer
 	void generateCloud();
+	void checkAlignment();
+
 	// internal program state switching
 	void setState(ProgramState);
 public:
@@ -75,6 +77,8 @@ public slots:
 	void setCameraPose(int pose);
 	// set params of custom pose
 	void setCustomPose(float xangle, float yangle, float zdist);
+	// align to ground
+	void setGroundAlingment(bool ga);
 	// double volume height
 	void setDoubleY(bool);
 	// record ONI
@@ -158,4 +162,7 @@ signals:
 	void framesUpdate(int count);
 	void colormapErrorUpdate(double, double);
 	void camgridUpdate(std::vector<std::vector<float>> grid, int grid_x, int grid_y);
+
+	// temp
+	void updateNormal(float nx, float ny, float nz);
 };

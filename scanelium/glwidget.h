@@ -96,6 +96,9 @@ private:
 	QVector<float> cam_points;
 	QVector<unsigned int> cam_inds;
 
+	// temp
+	QVector3D normal_plane;
+	void drawNormal();
 
 	void drawGrid();
 	void drawFrame();
@@ -127,6 +130,8 @@ public slots :
 	void refreshTexture(const QImage& img);
 	void refreshCloud(QVector<QVector3D>, QVector<QVector3D>);
 	void setPolygonMesh(Model::Ptr);
+
+	void refreshNormal(float nx, float ny, float nz);
 
 	void newCameraPose(QMatrix4x4);
 	void setCameraImgGrid(std::vector<std::vector<float>> grids, int grid_x, int grid_y);

@@ -386,129 +386,150 @@ ColorMapper::mapColorsZhouKoltun() {
 	// prepare threads
 	prepareThreads(camerathreads_num);
 
-	// *********** begin multithread
-	multithread(PREPROCESS, 0);
-	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
-	// ***********   end multithread
+	if (iteration_count > 0) {
+		// *********** begin multithread
+		multithread(PREPROCESS, 0);
+		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
+		// ***********   end multithread
 
-	printf("camera_points:\n");
-	for (int i = 0; i < camera_count; ++i) {
-		printf("#%d: %d points\n", i, (int)(camera_point_inds[i]->size()));
-	}
+		printf("camera_points:\n");
+		for (int i = 0; i < camera_count; ++i) {
+			printf("#%d: %d points\n", i, (int)(camera_point_inds[i]->size()));
+		}
 
-// =======================
-// = = ALGORITHM BEGIN = =
-// =======================
+		// =======================
+		// = = ALGORITHM BEGIN = =
+		// =======================
 
-	//	int iteration_count = 50;
+			//	int iteration_count = 50;
 
-	using namespace Eigen;
-	initialError = 1;
-	double PrevResid = 1;
-	int resid_lower = 0;
+		using namespace Eigen;
+		initialError = 1;
+		double PrevResid = 1;
+		int resid_lower = 0;
 
-	double norm_lambda = 0.1 /* 21 * 17*/ * 1280 * 1024; // reference lamdba * reference image size
+		double norm_lambda = 0.1 /* 21 * 17*/ * 1280 * 1024; // reference lamdba * reference image size
 
-	double lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey*/ cip.width * cip.height);
+		double lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey*/ cip.width * cip.height);
 
-	// ITERATIONS <===================================================
-	bool level_up = true;
-	current_lvl = use_img_pyr ? (cip.width >= 640 ? 2 : 1) : 0;
+		// ITERATIONS <===================================================
+		bool level_up = true;
+		current_lvl = use_img_pyr ? (cip.width >= 640 ? 2 : 1) : 0;
 
-	lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
-	for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
+		lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
+		for (int i = algoparams.dof6; i < algoparams.matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
 
-	cout << "Pyramid level: " << current_lvl << ", levels = " << current_lvl + 1 << ", lambda = " << lambda << endl;
+		cout << "Pyramid level: " << current_lvl << ", levels = " << current_lvl + 1 << ", lambda = " << lambda << endl;
 
-	double E = 0.0;
-	int cnt_e = 0;
-	computeBWError(0, E, cnt_e);
-	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
-
-	initialError = sqrt(E / (double)cnt_e);
-	printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
-
-	cout << "iterations count " << iteration_count << endl;
-
-	if (iteration_count > 0) computeBWError(current_lvl, E, cnt_e);
-	for (iteration = 0; iteration < iteration_count; ++iteration) {
-		if (end_iterations) break;
-		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
-
-		printf("**** Iteration #%d ****\n\n", iteration);
-		emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration + 1), 0);
-
-		// *  MULTITHREADING	
-		multithread(CameraTask::ALGORITHM, current_lvl); // includes bw computation
-		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
-		// * END MULTITHREADING
-
-		computeBWError(current_lvl, E, cnt_e);
+		double E = 0.0;
+		int cnt_e = 0;
+		computeBWError(0, E, cnt_e);
 		if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
 
+		initialError = sqrt(E / (double)cnt_e);
 		printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
-		if (PrevResid >= sqrt(E / (double)cnt_e)) resid_lower = 0;
-		else resid_lower += 1;
 
-		PrevResid = sqrt(E / (double)cnt_e);
-		emit refreshResidualError(initialError, PrevResid);
+		cout << "iterations count " << iteration_count << endl;
 
-		if (resid_lower > 2) break; // error increased twice
+		computeBWError(current_lvl, E, cnt_e);
+		for (iteration = 0; iteration < iteration_count; ++iteration) {
+			if (end_iterations) break;
+			if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
 
-		cout << "iteration end" << endl;
+			printf("**** Iteration #%d ****\n\n", iteration);
+			emit message(QString::fromLocal8Bit("Iteration %1").arg(iteration + 1), 0);
 
-		// show img correction grid
-		std::vector<std::vector<float>> camgrids;
-		for (int i = 0; i < camera_count; ++i) {
-			std::vector<float> camgrid;
-			int pind = 0;
-			for (int uy = 0; uy < algoparams_lvl[current_lvl].gridsizey; ++uy)
-				for (int ux = 0; ux < algoparams_lvl[current_lvl].gridsizex; ++ux, pind += 2) {
-					float fx = ux * algoparams_lvl[current_lvl].stepx + x[i]->operator()(pind + algoparams_lvl[current_lvl].dof6);
-					float fy = uy * algoparams_lvl[current_lvl].stepy + x[i]->operator()(pind + 1 + algoparams_lvl[current_lvl].dof6);
-
-					camgrid.push_back((fx / (float)(camdata[i]->ip[current_lvl].width - 1) - 0.5f) * 2.0f);
-					camgrid.push_back((fy / (float)(camdata[i]->ip[current_lvl].height - 1) - 0.5f) * 2.0f);
-				}
-			camgrids.push_back(camgrid);
-		}
-		emit refreshCamGrid(camgrids, algoparams_lvl[current_lvl].gridsizex, algoparams_lvl[current_lvl].gridsizey);
-
-		// change level
-		if (level_up && current_lvl > 0 && iteration % 10 == 9) {
-			double diffx = algoparams_lvl[current_lvl - 1].stepx / algoparams_lvl[current_lvl].stepy;
-			double diffy = algoparams_lvl[current_lvl - 1].stepy / algoparams_lvl[current_lvl].stepy;
-
-			for (int cam = 0; cam < camera_count; ++cam) {
-				for (int xdim = algoparams.dof6; xdim < algoparams.matrixdim; ++xdim) {
-					if (xdim % 2 == 0) (*x[cam])(xdim) *= diffx;
-					else (*x[cam])(xdim) *= diffy;
-				}
-			}
-			current_lvl--;
-			lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
-
-			for (int i = algoparams_lvl[current_lvl].dof6; i < algoparams_lvl[current_lvl].matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
-
-			cout << "Level up: " << current_lvl << ", lambda = " << lambda << endl;
+			// *  MULTITHREADING	
+			multithread(CameraTask::ALGORITHM, current_lvl); // includes bw computation
+			if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
+			// * END MULTITHREADING
 
 			computeBWError(current_lvl, E, cnt_e);
-			resid_lower = 0;
+			if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false);  return; }
+
+			printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
+			if (PrevResid >= sqrt(E / (double)cnt_e)) resid_lower = 0;
+			else resid_lower += 1;
+
 			PrevResid = sqrt(E / (double)cnt_e);
 			emit refreshResidualError(initialError, PrevResid);
+
+			if (resid_lower > 2) break; // error increased twice
+
+			cout << "iteration end" << endl;
+
+			// show img correction grid
+			std::vector<std::vector<float>> camgrids;
+			for (int i = 0; i < camera_count; ++i) {
+				std::vector<float> camgrid;
+				int pind = 0;
+				for (int uy = 0; uy < algoparams_lvl[current_lvl].gridsizey; ++uy)
+					for (int ux = 0; ux < algoparams_lvl[current_lvl].gridsizex; ++ux, pind += 2) {
+						float fx = ux * algoparams_lvl[current_lvl].stepx + x[i]->operator()(pind + algoparams_lvl[current_lvl].dof6);
+						float fy = uy * algoparams_lvl[current_lvl].stepy + x[i]->operator()(pind + 1 + algoparams_lvl[current_lvl].dof6);
+
+						camgrid.push_back((fx / (float)(camdata[i]->ip[current_lvl].width - 1) - 0.5f) * 2.0f);
+						camgrid.push_back((fy / (float)(camdata[i]->ip[current_lvl].height - 1) - 0.5f) * 2.0f);
+					}
+				camgrids.push_back(camgrid);
+			}
+			emit refreshCamGrid(camgrids, algoparams_lvl[current_lvl].gridsizex, algoparams_lvl[current_lvl].gridsizey);
+
+			// change level
+			if (level_up && current_lvl > 0 && iteration % 10 == 9) {
+				double diffx = algoparams_lvl[current_lvl - 1].stepx / algoparams_lvl[current_lvl].stepy;
+				double diffy = algoparams_lvl[current_lvl - 1].stepy / algoparams_lvl[current_lvl].stepy;
+
+				for (int cam = 0; cam < camera_count; ++cam) {
+					for (int xdim = algoparams.dof6; xdim < algoparams.matrixdim; ++xdim) {
+						if (xdim % 2 == 0) (*x[cam])(xdim) *= diffx;
+						else (*x[cam])(xdim) *= diffy;
+					}
+				}
+				current_lvl--;
+				lambda = norm_lambda / (double)(/*algoparams.gridsizex * algoparams.gridsizey */ camdata[0]->ip[current_lvl].width * camdata[0]->ip[current_lvl].height);
+
+				for (int i = algoparams_lvl[current_lvl].dof6; i < algoparams_lvl[current_lvl].matrixdim; ++i) bigIdentity->insert(i, i) = lambda;
+
+				cout << "Level up: " << current_lvl << ", lambda = " << lambda << endl;
+
+				computeBWError(current_lvl, E, cnt_e);
+				resid_lower = 0;
+				PrevResid = sqrt(E / (double)cnt_e);
+				emit refreshResidualError(initialError, PrevResid);
+			}
 		}
+
+
+		// =====================
+		// = = ALGORITHM END = =
+		// =====================
+		printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
+		printf("\nInitial Residual Error: %lf , sqrt: %lf\n", initialError*initialError, initialError);
+
+		optimizedError = sqrt(E / (double)cnt_e);
+		emit refreshResidualError(initialError, optimizedError);
+
+		// REPEAT DEPTH RENDERING
+		for (int current_cam = 0; current_cam < camera_count; ++current_cam)
+		{
+			Matrix4f new_pose = camdata[current_cam]->TransM.inverse().cast<float>();
+			vector<float> dpt;
+			renderPose(dpt, new_pose, cip);
+			dpt_render[current_cam] = dpt;
+			camdata[current_cam]->render = &dpt_render[current_cam][0];
+			// new weights
+			computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, cip, 9);
+		}
+
+		/*
+		ofstream fout;
+		fout.open("xvec.txt");
+		for (int ab = 0; ab < algoparams.matrixdim; ++ab) {
+		fout << (*x[0])(ab) << ' ';
+		}
+		fout.close();*/
 	}
-
-
-// =====================
-// = = ALGORITHM END = =
-// =====================
-	printf("Average Residual Error: %lf , sqrt: %lf\n", E / (double)cnt_e, sqrt(E / (double)cnt_e));
-	printf("\nInitial Residual Error: %lf , sqrt: %lf\n", initialError*initialError, initialError);
-
-	optimizedError = sqrt(E / (double)cnt_e);
-	emit refreshResidualError(initialError, optimizedError);
-
 	// увеличение количества вершин и полигонов
 	oldpoints = mesh_vertices->size();
 	oldtriangles = mesh_vertices->size();
@@ -531,30 +552,10 @@ ColorMapper::mapColorsZhouKoltun() {
 
 	avgcolors.resize(mesh_vertices->size());
 
-
-// REPEAT DEPTH RENDERING
-	for (int current_cam = 0; current_cam < camera_count; ++current_cam)
-	{
-		Matrix4f new_pose = camdata[current_cam]->TransM.inverse().cast<float>();
-		vector<float> dpt;
-		renderPose(dpt, new_pose, cip);
-		dpt_render[current_cam] = dpt;
-		camdata[current_cam]->render = &dpt_render[current_cam][0];
-		// new weights
-		computeWeightsFromDepth(camdata[current_cam]->render, camdata[current_cam]->dpt_weights, cip, 9);
-	}
-
 // *  MULTITHREADING		
 	multithread(CameraTask::POSTPROCESS, 0);
 	if (_stop) { cancelThreads(); cleanData(); _started = false; emit finished(false); return; }
 // * END MULTITHREADING
-	/*
-	ofstream fout;
-	fout.open("xvec.txt");
-	for (int ab = 0; ab < algoparams.matrixdim; ++ab) {
-		fout << (*x[0])(ab) << ' ';
-	}
-	fout.close();*/
 
 	for (int i = 0; i < point_color.size(); ++i) {
 		if (avgcolors[i].count == 0) {

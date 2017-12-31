@@ -26,6 +26,8 @@ Controller::Controller() : QObject(NULL) {
 	_rec_set.camera_distance = 0.9f;
 	_rec_set.camera_x_angle = 0;
 	_rec_set.camera_y_angle = 0;
+	_rec_set.camera_z_angle = 0;
+	_rec_set.plane_alignment = false;
 
 	_rec_set.snapshot_rate = 1000;
 	emit recSettingsUpdate(_rec_set);
@@ -206,6 +208,8 @@ void Controller::setState(ProgramState st) {
 void Controller::generateCloud() {
 	if (depth_last_index == -1) return;
 
+	if (depth_last_index % 10 == 0) checkAlignment();
+
 	QVector<QVector3D> pnts;
 	QVector<QVector3D> colors;
 
@@ -235,6 +239,7 @@ void Controller::generateCloud() {
 	ushort fardepth = (ushort)((int)(1 << 16) - 10);
 
 	bool has_color = (color_last_index != -1);
+	uchar* img_bits = has_color ? _color.bits() : NULL;
 
 	float volume_size = _rec_set.volume_size;
 	bool doubleY = _rec_set.doubleY;
@@ -247,17 +252,15 @@ void Controller::generateCloud() {
 
 	QMatrix4x4 pose = computeCamPose(_rec_set);
 
-	for (int v = 0; v < height; ++v)
-	{
-		for (int u = 0; u < width; ++u, ++depth_idx)
-		{
+	for (int v = 0; v < height; ++v) {
+		for (int u = 0; u < width; ++u, ++depth_idx) {
 
 			unsigned short depth_val = _depth[depth_idx];
 			if (depth_val != 0 && depth_val < maxdepth)
 			{
 				float z = depth_val * 0.001f;
 				QVector3D pt(((float)u - cx) * z * divx,
-					((float)v - cx) * z * divy,
+					((float)v - cy) * z * divy,
 					z);
 
 				float colval = (1.0f - ((float)(depth_val) / (float)(maxdepth)))*0.8f;
@@ -274,10 +277,9 @@ void Controller::generateCloud() {
 						int coordx = (int)floor((float)u * depth_to_color);
 						int coordy = (int)floor((float)v * depth_to_color + depth_to_color_shiftY);
 						if (coordx < color_width && coordy < color_height) {
-							uchar* bits = _color.bits();
-							clr.setX(((float)bits[3 * (coordy*color_width + coordx) + 0]) / 255.0f);
-							clr.setY(((float)bits[3 * (coordy*color_width + coordx) + 1]) / 255.0f);
-							clr.setZ(((float)bits[3 * (coordy*color_width + coordx) + 2]) / 255.0f);
+							clr.setX(((float)img_bits[3 * (coordy*color_width + coordx) + 0]) / 255.0f);
+							clr.setY(((float)img_bits[3 * (coordy*color_width + coordx) + 1]) / 255.0f);
+							clr.setZ(((float)img_bits[3 * (coordy*color_width + coordx) + 2]) / 255.0f);
 						}
 					}
 				}
@@ -288,6 +290,32 @@ void Controller::generateCloud() {
 		}
 	}
 	emit cloudUpdate(pnts, colors);
+}
+
+void Controller::checkAlignment() {
+	int width = cam_res_depth_x[_cam_set.depth_res];
+	int height = cam_res_depth_y[_cam_set.depth_res];
+
+	if (_rec_set.camera_pose == CameraPose::CUSTOM && _rec_set.plane_alignment) {
+		iparams ip(_cam_set.fx * (640.f / width), _cam_set.fy * (640.f / width), width, height);
+		Eigen::Vector4f plane = computeGroundPlane(_depth, ip);
+		if (!isnan(plane.x())) {
+			float xrot = 0;
+			float zrot = 0;
+			//std::cout << "plane:" << plane.x() << ' ' << plane.y() << ' ' << plane.z() << ' ' << plane.w() << std::endl;
+			emit updateNormal(plane.x(), plane.y(), plane.z());
+
+			if (rotateXZalignY(plane, _rec_set.camera_y_angle, xrot, zrot)) {
+				if (xrot <= 90 && xrot >= -90 && zrot <= 90 && zrot >= -90) {
+					_rec_set.camera_x_angle = round(xrot);
+					_rec_set.camera_z_angle = round(zrot);
+
+					emit settingsUpdate(_cam_set, _rec_set);
+					emit recSettingsUpdate(_rec_set);
+				}
+			}
+		}
+	}
 }
 
 // ===========
@@ -573,6 +601,8 @@ void Controller::setCameraPose(int pose) {
 		_rec_set.camera_pose = pose;
 
 		if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+		if (pose == CameraPose::CUSTOM && !_rec_set.plane_alignment)
+				_rec_set.camera_z_angle = 0;
 
 		emit recSettingsUpdate(_rec_set);
 	}
@@ -592,6 +622,21 @@ void Controller::setCustomPose(float xangle, float yangle, float zdist) {
 
 		emit recSettingsUpdate(_rec_set);
 	}
+}
+
+void Controller::setGroundAlingment(bool ga) {
+	if (_state != ProgramState::INIT) return;
+
+	if (_rec_set.camera_pose == CameraPose::CUSTOM) {
+		_rec_set.plane_alignment = ga;
+		if (!ga)
+			_rec_set.camera_z_angle = 0;
+
+		if (_rec_set.from_file && depth_last_index >= 0) generateCloud();
+
+		emit recSettingsUpdate(_rec_set);
+	}
+
 }
 
 void Controller::setDoubleY(bool dy) {

@@ -142,7 +142,10 @@ struct rec_settings {
 
 	float camera_x_angle;	// custom camera pose
 	float camera_y_angle;	// custom camera pose
+	float camera_z_angle;	// custom camera pose
 	float camera_distance;	// custom camera pose
+	bool plane_alignment;	// custom camera pose
+
 	bool recording;			// record oni file
 	bool recording_only;	// no reconstruction
 	bool from_file;			// reconstruct from file

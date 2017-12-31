@@ -213,6 +213,29 @@ void glWidget::paintGL() {
 	painting = false;
 }
 
+void glWidget::drawNormal() {
+	lineProgram.bind();
+
+	QMatrix4x4 mcorrMatrix = QMatrix4x4();
+	mcorrMatrix(0, 0) = -1;
+	mcorrMatrix(1, 1) = -1;
+	QMatrix4x4 mOffsetMatrix = QMatrix4x4(); mOffsetMatrix.translate(offset);
+	mMatrix = mcorrMatrix * mOffsetMatrix;
+
+	QVector<QVector3D> line;
+	line.push_back(QVector3D(0, 0, 0));
+	line.push_back(QVector3D(normal_plane.x() * 2, normal_plane.y() * 2, normal_plane.z() * 2));
+	
+	lineProgram.setUniformValue("mvpMatrix", pMatrix * vMatrix * mMatrix);
+	lineProgram.setUniformValue("color", QColor(255, 255, 0));
+	lineProgram.setAttributeArray("vertex", line.constData());
+	lineProgram.enableAttributeArray("vertex");
+	glDrawArrays(GL_LINES, 0, line.size());
+	lineProgram.disableAttributeArray("vertex");
+	
+	lineProgram.release();
+}
+
 void glWidget::drawGrid() {
 	// cube
 	lineProgram.bind();
@@ -295,6 +318,8 @@ void glWidget::drawCloud() {
 		colorProgram.release();
 
 		data_mutex.unlock();
+
+		drawNormal();
 	}
 }
 
@@ -429,11 +454,11 @@ void glWidget::render(QMatrix4x4 pose, iparams ip) {
 	meshBuffer.bind();
 	meshindBuffer.bind();
 
-	mMatrix = QMatrix4x4();
-	mMatrix = pose.inverted();
+	QMatrix4x4 mrMatrix = QMatrix4x4();
+	mrMatrix = pose.inverted();
 
 	depthProgram.setUniformValue("pMatrix", pdMatrix);
-	depthProgram.setUniformValue("vmMatrix", vdMatrix * CoordM * mMatrix);
+	depthProgram.setUniformValue("vmMatrix", vdMatrix * CoordM * mrMatrix);
 	depthProgram.setAttributeBuffer("vertex", GL_FLOAT, 0, 3, sizeof(color_vertex));
 	depthProgram.enableAttributeArray("vertex");
 	glDrawElements(GL_TRIANGLES, mesh_inds.size(), GL_UNSIGNED_INT, 0);
@@ -761,5 +786,10 @@ void glWidget::setCameraImgGrid(std::vector<std::vector<float>> grids, int grid_
 
 	data_mutex.unlock();
 
+	this->updateGL();
+}
+
+void glWidget::refreshNormal(float nx, float ny, float nz) {
+	normal_plane = QVector3D(nx, ny, nz);
 	this->updateGL();
 }

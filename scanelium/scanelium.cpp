@@ -33,6 +33,8 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(_controller, &Controller::stateChanged, ui.bigViewer, &glWidget::stateChanged);
 	connect(_controller, &Controller::renderRequest, ui.bigViewer, &glWidget::render);
 	connect(ui.bigViewer, &glWidget::renderFinished, _controller, &Controller::renderFinished);
+	// temp
+	connect(_controller, &Controller::updateNormal, ui.bigViewer, &glWidget::refreshNormal);
 
 	connect(_controller, &Controller::statusUpdate, this, &Scanelium::refreshStatus);
 	connect(_controller, &Controller::stateChanged, this, &Scanelium::stateChanged);
@@ -53,6 +55,7 @@ Scanelium::Scanelium(QWidget *parent)
 	connect(ui.detailCheckBox, &QCheckBox::stateChanged, _controller, &Controller::setIncreaseModel);
 	connect(ui.imgPyrBox, &QCheckBox::stateChanged, _controller, &Controller::setUseImgPyr);
 	connect(ui.everyframeBox, &QCheckBox::stateChanged, _controller, &Controller::setUseEachFrame);
+	connect(ui.alignBox, &QCheckBox::stateChanged, _controller, &Controller::setGroundAlingment);
 	connect(ui.colorResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(colorComboIndexChanged(int)));
 	connect(ui.depthResCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(depthComboIndexChanged(int)));
 	connect(ui.camposeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(poseComboIndexChanged(int)));
@@ -230,7 +233,7 @@ void Scanelium::openSettings() {
 void Scanelium::showInfo() {
 	QMessageBox* msgbox =
 		new QMessageBox(QString::fromLocal8Bit("Info"),
-			QString::fromLocal8Bit("Scanelium \n\nVer 1.2 (171217) "),
+			QString::fromLocal8Bit("Scanelium \n\nVer 1.25 (171231) "),
 			QMessageBox::Information,
 			QMessageBox::Ok, 0, 0);
 	int res = msgbox->exec();
@@ -264,7 +267,7 @@ void Scanelium::recordingBoxChecked(int checked) {
 
 void Scanelium::refreshStatus(QString msg) {
 	ui.statusBar->showMessage(msg);
-	cout << "Status: " << msg.toStdString() << endl;
+	//cout << "Status: " << msg.toStdString() << endl;
 }
 
 void Scanelium::refreshStatusProgress(QString msg, int progress) {
@@ -357,6 +360,8 @@ void Scanelium::settingsChanged(cam_settings camset, rec_settings recset) {
 
 		ui.everyframeBox->setVisible(false);
 	}
+
+
 	ui.sizeSlider->setValue((int)(10 * recset.volume_size));
 	ui.sizeLabel->setText(QString::fromLocal8Bit("Size: %1m cube").arg(recset.volume_size));
 	ui.gridSlider->setValue(recset.grid_size);
@@ -364,9 +369,18 @@ void Scanelium::settingsChanged(cam_settings camset, rec_settings recset) {
 	ui.doubleYcheckBox->setChecked(recset.doubleY);
 
 	ui.camposeCombo->setCurrentIndex(recset.camera_pose);
+	
 	ui.xAngleSlider->setValue(recset.camera_x_angle);
 	ui.yAngleSlider->setValue(recset.camera_y_angle);
 	ui.zDistanceSlider->setValue((int)(recset.camera_distance * 10));
+	ui.alignBox->setChecked(recset.plane_alignment);
+
+	if (recset.camera_pose != 2) {
+		ui.customPoseBox->setVisible(false);
+	}
+	else {
+		ui.customPoseBox->setVisible(true);
+	}
 }
 
 

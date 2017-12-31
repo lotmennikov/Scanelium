@@ -108,7 +108,7 @@ QToolBox {
            <x>0</x>
            <y>0</y>
            <width>213</width>
-           <height>565</height>
+           <height>588</height>
           </rect>
          </property>
          <attribute name="label">
@@ -447,6 +447,13 @@ QToolBox {
                   </item>
                  </layout>
                 </item>
+                <item>
+                 <widget class="QCheckBox" name="alignBox">
+                  <property name="text">
+                   <string>Align to ground</string>
+                  </property>
+                 </widget>
+                </item>
                </layout>
               </widget>
              </item>
@@ -550,8 +557,8 @@ QToolBox {
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>230</width>
-           <height>544</height>
+           <width>171</width>
+           <height>283</height>
           </rect>
          </property>
          <attribute name="label">

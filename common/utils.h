@@ -35,7 +35,8 @@ inline QMatrix4x4 computeCamPose(rec_settings rs) {
 		pose.translate(0, 0, -rs.camera_distance);
 		QMatrix4x4 xrot = QMatrix4x4(); xrot.rotate(rs.camera_x_angle, QVector3D(1, 0, 0));
 		QMatrix4x4 yrot = QMatrix4x4(); yrot.rotate(rs.camera_y_angle, QVector3D(0, 1, 0));
-		pose = yrot * xrot * pose;
+		QMatrix4x4 zrot = QMatrix4x4(); zrot.rotate(rs.camera_z_angle, QVector3D(0, 0, 1));
+		pose = yrot * xrot * zrot * pose;
 	}
 		break;
 	default:
@@ -62,7 +63,8 @@ inline Eigen::Affine3f computeCamPoseE(rec_settings rs) {
 		pose = Eigen::Translation3f(0, 0, -rs.camera_distance);
 		Eigen::Matrix3f xrot = (Eigen::Matrix3f)Eigen::AngleAxisf(rs.camera_x_angle * 3.14159265f / 180.0f, Eigen::Vector3f::UnitX());
 		Eigen::Matrix3f yrot = (Eigen::Matrix3f)Eigen::AngleAxisf(rs.camera_y_angle * 3.14159265f / 180.0f, Eigen::Vector3f::UnitY());
-		pose = Eigen::Affine3f(yrot * xrot) * pose;
+		Eigen::Matrix3f zrot = (Eigen::Matrix3f)Eigen::AngleAxisf(rs.camera_z_angle * 3.14159265f / 180.0f, Eigen::Vector3f::UnitZ());
+		pose = Eigen::Affine3f(yrot * xrot * zrot) * pose;
 	}
 	break;
 	default:
@@ -74,6 +76,10 @@ inline Eigen::Affine3f computeCamPoseE(rec_settings rs) {
 	pose = offset * pose;
 	return pose;
 }
+
+Eigen::Vector4f computeGroundPlane(std::vector<unsigned short> depth, iparams ip);
+
+bool rotateXZalignY(Eigen::Vector4f plane, int yangle, float& xangle, float& zangle);
 
 void saveFloatImg(float* data, int width, int height, std::string filename, float normalize = 1.0f);
 
